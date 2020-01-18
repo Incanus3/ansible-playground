@@ -4,3 +4,32 @@
   tasks:
   - apt:     name=ntp state=present update_cache=yes
   - service: name=ntp state=started enabled=yes
+
+  - ufw: state=enabled
+  - ufw: rule=allow port=22 proto=tcp
+
+  - user: >-
+      name=alto groups=sudo shell=/bin/bash
+      password={{ 'alto' | password_hash('sha512') }} update_password=on_create
+
+- hosts: app
+  become: yes
+  become_user: alto
+  tasks:
+  - file: path=/home/alto/deploy state=directory
+
+- hosts: db
+  become: yes
+  tasks:
+  - apt:     name=postgresql,python3-psycopg2 state=present
+  - service: name=postgresql state=started enabled=yes
+
+  - ufw: rule=allow port=5432 proto=tcp src=192.168.60.4
+  - ufw: rule=allow port=5432 proto=tcp src=192.168.60.5
+
+- hosts: db
+  become: yes
+  become_user: postgres
+  tasks:
+  - postgresql_user: name=alto password=alto
+  - postgresql_db:   name=kredit owner=alto

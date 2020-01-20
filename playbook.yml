@@ -1,5 +1,9 @@
 ---
 - hosts: all
+  tags: basic-setup
+  vars:
+    username: alto
+    password: alto
   become: yes
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
@@ -14,31 +18,43 @@
   - ufw: rule=allow port=22 proto=tcp
 
   - user: >
-      name=alto groups=sudo shell=/bin/bash
-      password={{ 'alto' | password_hash('sha512') }} update_password=on_create
+      name={{ username }} groups=sudo shell=/bin/bash
+      password={{ password | password_hash('sha512') }} update_password=on_create
+
+
+- hosts: db
+  tags: postgres-setup
+  vars:
+    allowed_clients:
+    - host: 192.168.60.4
+      port: 5432
+    - host: 192.168.60.5
+      port: 5432
+  become: yes
+  pre_tasks:
+  - apt: update_cache=yes cache_valid_time=3600
+  tasks:
+  - apt:     name=postgresql,python3-psycopg2 state=present
+  - service: name=postgresql state=started enabled=yes
+  - ufw: rule=allow proto=tcp src={{ item.host }} port={{ item.port }}
+    with_items: "{{ allowed_clients }}"
 
 
 - hosts: app
+  tags: python-setup
+  vars:
+    pyenv_dir: ~/.pyenv
+    local_bin_dir: ~/.local/bin
   become: yes
   become_user: alto
+  pre_tasks:
+  - apt: update_cache=yes cache_valid_time=3600
   tasks:
-  - file: path=~/.ssh state=directory mode=700
-  - copy: src=keys/ansible_testing     dest=~/.ssh/ mode=600
-  - copy: src=keys/ansible_testing.pub dest=~/.ssh/ mode=644
-  - blockinfile:
-      dest: ~/.ssh/config
-      create: yes
-      block: |
-        Host gitlab.alto-apps.mine.nu
-          IdentityFile ~/.ssh/ansible_testing
-  - known_hosts: >
-      host=gitlab.alto-apps.mine.nu
-      key="|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
-
-  - file:    path=~/.local/bin state=directory
-  - get_url: url=https://pyenv.run dest=~/.local/bin/install_pyenv.sh mode=744
-  - command: ~/.local/bin/install_pyenv.sh
-      creates=~/.pyenv
+  - file:    path={{ local_bin_dir }} state=directory
+  - get_url: url=https://pyenv.run dest={{ local_bin_dir }}/install_pyenv.sh mode=744
+  - command:
+      cmd: "{{ local_bin_dir }}/install_pyenv.sh"
+      creates: "{{ pyenv_dir }}"
   - blockinfile:
       dest: ~/.bashrc
       insertbefore: "If not running interactively, don't do anything"
@@ -50,39 +66,72 @@
   - apt: name=build-essential,libssl-dev,zlib1g-dev,libbz2-dev,libreadline-dev,libffi-dev state=present
     become: yes
     become_user: root
-  - shell: . ~/.bashrc && pyenv install 3.8.1
-      creates=~/.pyenv/versions/3.8.1/bin/python
-
-  - file: path=~/deploy           state=directory
-  - file: path=~/deploy/datastore state=directory
-  - file: path=~/deploy/webui     state=directory
-
-  - apt: name=libpq-dev state=present
-    become: yes
-    become_user: root
-  - file: path=~/deploy/datastore/datastore-kredit state=directory
-  - git:  >
-      repo=git@gitlab.alto-apps.mine.nu:python/datastore-kredit.git
-      dest=~/deploy/datastore/datastore-kredit/repo depth=1
-      key_file=~/.ssh/ansible_testing
-  - shell: . ~/.bashrc && pyenv virtualenv 3.8.1 kredit3.8
-      creates=~/.pyenv/versions/kredit3.8/bin/python
-  - pip: executable=~/.pyenv/versions/kredit3.8/bin/pip requirements=requirements.txt state=latest
-      chdir=~/deploy/datastore/datastore-kredit/repo
 
 
 - hosts: db
-  become: yes
-  tasks:
-  - apt:     name=postgresql,python3-psycopg2 state=present
-  - service: name=postgresql state=started enabled=yes
-
-  - ufw: rule=allow port=5432 proto=tcp src=192.168.60.4
-  - ufw: rule=allow port=5432 proto=tcp src=192.168.60.5
-
-- hosts: db
+  tags: create-db
+  vars:
+    username: alto
+    password: alto
+    database: kredit
   become: yes
   become_user: postgres
   tasks:
-  - postgresql_user: name=alto password=alto
-  - postgresql_db:   name=kredit owner=alto
+  - postgresql_user: name={{ username }} password={{ password }}
+  - postgresql_db:   name={{ database }} owner={{ username }}
+
+
+- hosts: app
+  tags: deploy-keys
+  vars:
+    ssh_dir: ~/.ssh
+    ssh_key: ansible_testing
+    gitlab_url: gitlab.alto-apps.mine.nu
+  become: yes
+  become_user: alto
+  tasks:
+  - file: path={{ ssh_dir }} state=directory mode=700
+  - copy: src=keys/{{ ssh_key }}     dest={{ ssh_dir }}/ mode=600
+  - copy: src=keys/{{ ssh_key }}.pub dest={{ ssh_dir }}/ mode=644
+  - blockinfile:
+      dest: "{{ ssh_dir }}/config"
+      create: yes
+      block: |
+        Host {{ gitlab_url }}
+          IdentityFile {{ ssh_dir }}/{{ ssh_key }}
+  - known_hosts: >
+      host={{ gitlab_url }}
+      key="|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
+
+
+- hosts: app
+  tags: deploy-backend
+  vars:
+    ssh_dir: ~/.ssh
+    ssh_key: ansible_testing
+    pyenv_dir: ~/.pyenv
+    deploy_dir: ~/deploy
+    deploy_to: "{{ deploy_dir }}/datastore/datastore-kredit"
+    repo_name: python/datastore-kredit
+    gitlab_url: gitlab.alto-apps.mine.nu
+    python_version: 3.8.1
+    virtualenv: kredit3.8
+  become: yes
+  become_user: alto
+  pre_tasks:
+  - apt: update_cache=yes cache_valid_time=3600
+  tasks:
+  - apt: name=libpq-dev state=present
+    become: yes
+    become_user: root
+  - file: path={{ deploy_to }} state=directory
+  - git:  >
+      repo=git@{{ gitlab_url }}:{{ repo_name }}.git
+      dest={{ deploy_to }}/repo depth=1
+      key_file={{ ssh_dir }}/{{ ssh_key }}
+  - shell: . ~/.bashrc && pyenv install {{ python_version }}
+      creates={{ pyenv_dir }}/versions/{{ python_version }}/bin/python
+  - shell: . ~/.bashrc && pyenv virtualenv {{ python_version }} {{ virtualenv }}
+      creates={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/python
+  - pip: executable={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/pip requirements=requirements.txt state=latest
+      chdir={{ deploy_to }}/repo

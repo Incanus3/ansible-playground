@@ -116,22 +116,45 @@
     gitlab_url: gitlab.alto-apps.mine.nu
     python_version: 3.8.1
     virtualenv: kredit3.8
+    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    releases_to_keep: 3
   become: yes
   become_user: alto
+
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
+
   tasks:
   - apt: name=libpq-dev state=present
     become: yes
     become_user: root
-  - file: path={{ deploy_to }} state=directory
-  - git:  >
-      repo=git@{{ gitlab_url }}:{{ repo_name }}.git
-      dest={{ deploy_to }}/repo depth=1
-      key_file={{ ssh_dir }}/{{ ssh_key }}
   - shell: . ~/.bashrc && pyenv install {{ python_version }}
       creates={{ pyenv_dir }}/versions/{{ python_version }}/bin/python
   - shell: . ~/.bashrc && pyenv virtualenv {{ python_version }} {{ virtualenv }}
       creates={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/python
-  - pip: executable={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/pip requirements=requirements.txt state=latest
-      chdir={{ deploy_to }}/repo
+  - file: path={{ deploy_to }}/releases state=directory
+  - git:  >
+      repo=git@{{ gitlab_url }}:{{ repo_name }}.git
+      dest={{ deploy_to }}/repo depth=1
+      key_file={{ ssh_dir }}/{{ ssh_key }}
+    register: git_checkout
+
+  - block:
+    - copy:
+        src:  "{{ deploy_to }}/repo/"
+        dest: "{{ deploy_to }}/releases/{{ timestamp }}"
+        remote_src: yes
+    - file:
+        state: link
+        src:  "{{ deploy_to }}/releases/{{ timestamp }}"
+        dest: "{{ deploy_to }}/current"
+    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ releases_to_keep + 1 }}"
+      register: releases_to_remove
+    - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
+      with_items: "{{ releases_to_remove.stdout_lines }}"
+    - pip:
+        executable: "{{ pyenv_dir }}/versions/{{ virtualenv }}/bin/pip"
+        requirements: requirements.txt
+        state: latest
+        chdir: "{{ deploy_to }}/repo"
+    when: git_checkout.changed | bool

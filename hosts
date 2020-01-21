@@ -6,6 +6,11 @@ db1  ansible_host=192.168.60.6
 [app]
 app[1:2]
 
+[app:vars]
+deploy_user=alto
+deploy_user_pass=alto
+deploy_dir=/home/alto/deploy
+
 # Database server
 [db]
 db1

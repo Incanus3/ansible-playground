@@ -2,8 +2,8 @@
 - hosts: all
   tags: basic-setup
   vars:
-    username: alto
-    password: alto
+    username: "{{ deploy_user      }}"
+    password: "{{ deploy_user_pass }}"
   become: yes
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
@@ -17,9 +17,12 @@
   - ufw: state=enabled
   - ufw: rule=allow port=22 proto=tcp
 
-  - user: >
-      name={{ username }} groups=sudo shell=/bin/bash
-      password={{ password | password_hash('sha512') }} update_password=on_create
+  - user:
+      name:     "{{ username }}"
+      password: "{{ password | password_hash('sha512') }}"
+      groups: ['sudo']
+      shell: /bin/bash
+      update_password: on_create
 
 
 - hosts: db
@@ -27,6 +30,7 @@
   become: yes
 
   vars:
+    # TODO: collect these from host facts
     postgresql_version: 10
     postgresql_cluster: main
     allowed_clients:
@@ -45,7 +49,7 @@
   - apt: update_cache=yes cache_valid_time=3600
 
   tasks:
-  - apt:     name=postgresql,python3-psycopg2 state=present
+  - apt: name=postgresql,python3-psycopg2 state=present
   - lineinfile:
       dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/postgresql.conf
       line:        "listen_addresses = '*'"
@@ -68,7 +72,7 @@
     pyenv_dir: ~/.pyenv
     local_bin_dir: ~/.local/bin
   become: yes
-  become_user: alto
+  become_user: "{{ deploy_user }}"
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
   tasks:
@@ -139,37 +143,33 @@
         path:  /etc/nginx/sites-enabled/default
       notify: restart nginx
     - copy: src=nginx/{{ item }} dest=/etc/nginx/sites-available/
-      with_items: ['1_vhost_not_found']
-      # with_items: ['0_http_to_https', '1_vhost_not_found']
+      with_items: ['0_http_to_https', '1_vhost_not_found']
     - file:
         state: link
         src:  /etc/nginx/sites-available/{{ item }}
         dest: /etc/nginx/sites-enabled/{{ item }}
-      with_items: ['0_http_to_https', '1_vhost_not_found']
+      with_items: ['1_vhost_not_found']
+      # with_items: ['0_http_to_https', '1_vhost_not_found']
       notify: restart nginx
 
 
 - hosts: db
   tags: create-db
-  vars:
-    username: alto
-    password: alto
-    database: kredit
   become: yes
   become_user: postgres
+  vars_files: ["{{ deploy_vars_file }}"]
   tasks:
-  - postgresql_user: name={{ username }} password={{ password }}
-  - postgresql_db:   name={{ database }} owner={{ username }}
+  - postgresql_user: name={{ db_user }} password={{ db_pass }}
+  - postgresql_db:   name={{ db_name }} owner={{ db_user }}
 
 
 - hosts: app
   tags: deploy-keys
+  become: yes
+  become_user: "{{ deploy_user }}"
+  vars_files: ["{{ deploy_vars_file }}"]
   vars:
     ssh_dir: ~/.ssh
-    ssh_key: ansible_testing
-    gitlab_url: gitlab.alto-apps.mine.nu
-  become: yes
-  become_user: alto
   tasks:
   - file: path={{ ssh_dir }} state=directory mode=700
   - copy: src=keys/{{ ssh_key }}     dest={{ ssh_dir }}/ mode=600
@@ -180,36 +180,28 @@
       block: |
         Host {{ gitlab_url }}
           IdentityFile {{ ssh_dir }}/{{ ssh_key }}
-  - known_hosts: >
-      host={{ gitlab_url }}
-      key="|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
+  - known_hosts:
+      host: "{{ gitlab_url }}"
+      key:  "|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
 
 
 - hosts: app
   tags: deploy-backend
+  become: yes
+  become_user: "{{ deploy_user }}"
+  vars_files: ["{{ deploy_vars_file }}"]
   vars:
-    ssh_dir: ~/.ssh
-    ssh_key: ansible_testing
-    db_host: 192.168.60.6
-    db_port: 5432
-    db_user: alto
-    db_pass: alto
-    db_name: kredit
+    ssh_dir:   ~/.ssh
     pyenv_dir: ~/.pyenv
-    deploy_name: kredit
-    deploy_dir: ~/deploy
-    deploy_to: "{{ deploy_dir }}/datastore/datastore-kredit"
-    repo_name: python/datastore-kredit
-    gitlab_url: gitlab.alto-apps.mine.nu
-    python_version: 3.8.1
-    virtualenv: kredit3.8
+    deploy_to:      "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
     virtualenv_dir: "{{ pyenv_dir }}/versions/{{ virtualenv }}"
-    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
-    releases_to_keep: 3
+    timestamp:      "{{ ansible_date_time.iso8601_basic_short }}"
+    keep_releases:  "{{ releases_to_keep   | default(3) }}"
+    mail_domain:    "{{ email_domain       | default('altopraha.cz') }}"
+    default_from:   "{{ default_from_email | default(deploy_name   + '@' + mail_domain) }}"
+    support_mail:   "{{ support_email      | default('app-support' + '@' + mail_domain) }}"
   environment:
     DJANGO_ENV: production
-  become: yes
-  become_user: alto
 
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
@@ -229,8 +221,8 @@
       dest: "{{ deploy_to }}/shared/config/config.yml"
       content: |
         production:
-          default_from_email: '{{ deploy_name }}@altopraha.cz'
-          support_email: 'app-support@altopraha.cz'
+          default_from_email: '{{ default_from }}'
+          support_email:      '{{ support_mail }}'
   - copy:
       force: no
       dest: "{{ deploy_to }}/shared/config/database.yml"
@@ -242,10 +234,11 @@
           database: {{ db_name }}
           username: {{ db_user }}
           password: {{ db_pass }}
-  - git:  >
-      repo=git@{{ gitlab_url }}:{{ repo_name }}.git
-      dest={{ deploy_to }}/repo depth=1
-      key_file={{ ssh_dir }}/{{ ssh_key }}
+  - git:
+      repo:     "git@{{ gitlab_url }}:{{ repo_name }}.git"
+      dest:     "{{ deploy_to }}/repo"
+      key_file: "{{ ssh_dir }}/{{ ssh_key }}"
+      depth:    1
     register: git_checkout
 
   - block:
@@ -266,7 +259,7 @@
         src:  "{{ deploy_to }}/shared/{{ item }}"
         dest: "{{ deploy_to }}/current/{{ item }}"
       with_items: ["config", "log"]
-    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ releases_to_keep + 1 }}"
+    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases + 1 }}"
       register: releases_to_remove
     - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
       with_items: "{{ releases_to_remove.stdout_lines }}"
@@ -279,10 +272,9 @@
     - command:
         cmd:   "{{ virtualenv_dir }}/bin/python manage.py migrate"
         chdir: "{{ deploy_to }}/current"
-    - command:
-        cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto"
+    - shell:
+        cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto || true"
         chdir: "{{ deploy_to }}/current"
-      ignore_errors: true
     when: git_checkout.changed | bool
 
 
@@ -290,15 +282,11 @@
   tags: deploy-nginx
   become: yes
 
+  vars_files: ["{{ deploy_vars_file }}"]
   vars:
-    virtualenv: kredit3.8
-    cert_name:  example.com
-    deploy_dir: /home/alto/deploy
-    vhost_name: datastore-kredit
-    frontend_deploy_to: "{{ deploy_dir }}/webui/kredit"
-    backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-kredit"
-    frontend_server_names: ["datastore-kredit.example.com", "datastore-kredit.example.org"]
-    backend_server_names:  ["datastore-kredit-backend.example.com", "datastore-kredit-backend.example.org"]
+    vhost_name:         "datastore-{{ deploy_name }}"
+    frontend_deploy_to: "{{ deploy_dir }}/webui/{{ deploy_name }}"
+    backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
 
   handlers:
   - name: restart nginx

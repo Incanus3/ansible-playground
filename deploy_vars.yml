@@ -1,0 +1,14 @@
+deploy_name:    kredit
+repo_name:      python/datastore-kredit
+gitlab_url:     gitlab.alto-apps.mine.nu
+ssh_key:        ansible_testing
+python_version: 3.8.1
+virtualenv:     kredit3.8
+db_host:        192.168.60.6
+db_port:        5432
+db_user:        alto
+db_pass:        alto
+db_name:        kredit
+cert_name:      example.com
+frontend_server_names: ["datastore-kredit.example.com",         "datastore-kredit.example.org"]
+backend_server_names:  ["datastore-kredit-backend.example.com", "datastore-kredit-backend.example.org"]

@@ -1,0 +1,19 @@
+---
+- block:
+  - apt: update_cache=yes cache_valid_time=3600
+  - apt: name=postgresql,python3-psycopg2 state=present
+  - lineinfile:
+      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/postgresql.conf
+      line:        "listen_addresses = '*'"
+      regexp:      "^listen_addresses\\s*="
+      insertafter: "Connection Settings"
+    notify: restart postgres
+  - lineinfile:
+      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/pg_hba.conf
+      line: "host all all {{ item.ip }}/{{ item.cidr }} md5"
+    with_items: "{{ allowed_clients }}"
+    notify: restart postgres
+  - service: name=postgresql state=started enabled=yes
+  - ufw: rule=allow proto=tcp src={{ item.ip }} port={{ item.port | string }}
+    with_items: "{{ allowed_clients }}"
+  become: yes

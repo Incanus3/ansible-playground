@@ -1,0 +1,78 @@
+- block:
+    - apt: update_cache=yes cache_valid_time=3600
+    - apt: name=libpq-dev state=present
+  become: yes
+  become_user: root
+
+- block:
+  - shell: . ~/.bashrc && pyenv install {{ python_version }}
+      creates={{ pyenv_dir }}/versions/{{ python_version }}/bin/python
+  - shell: . ~/.bashrc && pyenv virtualenv {{ python_version }} {{ virtualenv }}
+      creates={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/python
+  - file: path={{ deploy_to }}/{{ item }} state=directory
+    with_items: ['releases', 'shared/config', 'shared/log']
+  - copy:
+      force: no
+      dest: "{{ deploy_to }}/shared/config/config.yml"
+      content: |
+        production:
+          default_from_email: '{{ default_from }}'
+          support_email:      '{{ support_mail }}'
+  - copy:
+      force: no
+      dest: "{{ deploy_to }}/shared/config/database.yml"
+      content: |
+        production:
+          adapter: postgresql
+          host:     {{ db_host }}
+          port:     {{ db_port }}
+          database: {{ db_name }}
+          username: {{ db_user }}
+          password: {{ db_pass }}
+  - git:
+      repo:     "git@{{ gitlab_url }}:{{ repo_name }}.git"
+      dest:     "{{ deploy_to }}/repo"
+      key_file: "{{ ssh_dir }}/{{ ssh_key }}"
+      depth:    1
+    register: git_checkout
+
+  - block:
+    - copy:
+        src:  "{{ deploy_to }}/repo/"
+        dest: "{{ deploy_to }}/releases/{{ timestamp }}"
+        remote_src: yes
+    - file:
+        state: link
+        src:  "{{ deploy_to }}/releases/{{ timestamp }}"
+        dest: "{{ deploy_to }}/current"
+    - file:
+        state: absent
+        path: "{{ deploy_to }}/current/{{ item }}"
+      with_items: ["config", "log"]
+    - file:
+        state: link
+        src:  "{{ deploy_to }}/shared/{{ item }}"
+        dest: "{{ deploy_to }}/current/{{ item }}"
+      with_items: ["config", "log"]
+    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases + 1 }}"
+      register: releases_to_remove
+    - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
+      with_items: "{{ releases_to_remove.stdout_lines }}"
+    - pip:
+        executable: "{{ virtualenv_dir }}/bin/pip"
+        requirements: requirements.txt
+        state: latest
+        chdir: "{{ deploy_to }}/repo"
+    - shell: passenger-config restart-app {{ deploy_to }} || true
+    - command:
+        cmd:   "{{ virtualenv_dir }}/bin/python manage.py migrate"
+        chdir: "{{ deploy_to }}/current"
+      run_once: true
+    - shell:
+        cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto || true"
+        chdir: "{{ deploy_to }}/current"
+    when: git_checkout.changed | bool
+  become: yes
+  become_user: "{{ deploy_user }}"
+  environment:
+    DJANGO_ENV: production

@@ -1,0 +1,7 @@
+deploy_to:      "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
+virtualenv_dir: "{{ pyenv_dir }}/versions/{{ virtualenv }}"
+timestamp:      "{{ ansible_date_time.iso8601_basic_short }}"
+keep_releases:  "{{ releases_to_keep   | default(3) }}"
+mail_domain:    "{{ email_domain       | default('altopraha.cz') }}"
+default_from:   "{{ default_from_email | default(deploy_name   + '@' + mail_domain) }}"
+support_mail:   "{{ support_email      | default('app-support' + '@' + mail_domain) }}"

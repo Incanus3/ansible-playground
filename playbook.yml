@@ -1,155 +1,18 @@
 ---
-- hosts: all
-  tags: basic-setup
-  vars:
-    username: "{{ deploy_user      }}"
-    password: "{{ deploy_user_pass }}"
-  become: yes
-  pre_tasks:
-  - apt: update_cache=yes cache_valid_time=3600
+- hosts:  all
+  tags:   basic-setup
+  roles: [basic_setup]
 
-  tasks:
-  - apt: name=tree,htop state=present
-
-  - apt:     name=ntp state=present
-  - service: name=ntp state=started enabled=yes
-
-  - ufw: state=enabled
-  - ufw: rule=allow port=22 proto=tcp
-
-  - user:
-      name:     "{{ username }}"
-      password: "{{ password | password_hash('sha512') }}"
-      groups: ['sudo']
-      shell: /bin/bash
-      update_password: on_create
-
-
-- hosts: db
-  tags: postgres-setup
-  become: yes
-
+- hosts:  db
+  tags:   postgres-setup
+  roles: [postgres_setup]
   vars:
     # TODO: collect these from host facts
     postgresql_version: 10
     postgresql_cluster: main
     allowed_clients:
-    - ip: 192.168.60.4
-      port: 5432
-      cidr: 24
-    - ip: 192.168.60.5
-      port: 5432
-      cidr: 24
-
-  handlers:
-  - import_tasks: handlers.yml
-
-  pre_tasks:
-  - apt: update_cache=yes cache_valid_time=3600
-
-  tasks:
-  - apt: name=postgresql,python3-psycopg2 state=present
-  - lineinfile:
-      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/postgresql.conf
-      line:        "listen_addresses = '*'"
-      regexp:      "^listen_addresses\\s*="
-      insertafter: "Connection Settings"
-    notify: restart postgres
-  - lineinfile:
-      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/pg_hba.conf
-      line: "host all all {{ item.ip }}/{{ item.cidr }} md5"
-    with_items: "{{ allowed_clients }}"
-    notify: restart postgres
-  - service: name=postgresql state=started enabled=yes
-  - ufw: rule=allow proto=tcp src={{ item.ip }} port={{ item.port }}
-    with_items: "{{ allowed_clients }}"
-
-
-- hosts: app
-  tags: python-setup
-  vars:
-    pyenv_dir: ~/.pyenv
-    local_bin_dir: ~/.local/bin
-  become: yes
-  become_user: "{{ deploy_user }}"
-  pre_tasks:
-  - apt: update_cache=yes cache_valid_time=3600
-  tasks:
-  - file:    path={{ local_bin_dir }} state=directory
-  - get_url: url=https://pyenv.run dest={{ local_bin_dir }}/install_pyenv.sh mode=744
-  - command:
-      cmd: "{{ local_bin_dir }}/install_pyenv.sh"
-      creates: "{{ pyenv_dir }}"
-  - blockinfile:
-      dest: ~/.bashrc
-      insertbefore: "If not running interactively, don't do anything"
-      block: |
-        export PYENV_ROOT="$HOME/.pyenv"
-        export PATH="$PYENV_ROOT/bin:$PATH"
-        eval "$(pyenv init -)"
-        eval "$(pyenv virtualenv-init -)"
-  - apt: name=build-essential,libssl-dev,zlib1g-dev,libbz2-dev,libreadline-dev,libffi-dev state=present
-    become: yes
-    become_user: root
-
-
-- hosts: app
-  tags: nginx-setup
-  become: yes
-
-  pre_tasks:
-  - apt: update_cache=yes cache_valid_time=3600
-
-  handlers:
-  - import_tasks: handlers.yml
-
-  tasks:
-    - ufw: rule=allow port={{ item }} proto=tcp
-      with_items: ["80", "443"]
-    - apt: name=nginx,dirmngr,gnupg,apt-transport-https,ca-certificates,python3-apt state=present
-    - apt_key: keyserver=hkp://keyserver.ubuntu.com:80 id=561F9B9CAC40B2F7
-    - apt_repository:
-        filename: passenger
-        repo: "deb https://oss-binaries.phusionpassenger.com/apt/passenger bionic main"
-    - apt: name=libnginx-mod-http-passenger state=present
-      notify: restart nginx
-    - file:
-        state: link
-        src:  /usr/share/nginx/modules-available/mod-http-passenger.load
-        dest: /etc/nginx/modules-enabled/50-mod-http-passenger.conf
-    - lineinfile:
-        dest: /etc/nginx/nginx.conf
-        line: "\tlog_format custom '[$time_local] $request_time $body_bytes_sent $remote_addr $status $request_method $host $request_uri';"
-        regexp:      "^\\s*log_format\\s+custom\\s+"
-        insertafter: "^\\s*error_log\\s+"
-      notify: restart nginx
-    - lineinfile:
-        dest: /etc/nginx/conf.d/mod-http-passenger.conf
-        line:   "{{ item.line }}"
-        regexp: "{{ item.regexp }}"
-        create: yes
-      with_items:
-      - line:   "passenger_root /usr/lib/ruby/vendor_ruby/phusion_passenger/locations.ini;"
-        regexp: "^passenger_root\\s"
-      - line:   "passenger_ruby /usr/bin/passenger_free_ruby;"
-        regexp: "^passenger_ruby\\s"
-      - line:   "passenger_log_file /var/log/nginx/passenger.log;"
-        regexp: "^passenger_log_file\\s"
-      notify: restart nginx
-    - file:
-        state: absent
-        path:  /etc/nginx/sites-enabled/default
-      notify: restart nginx
-    - copy: src=nginx/{{ item }} dest=/etc/nginx/sites-available/
-      with_items: ['0_http_to_https', '1_vhost_not_found']
-    - file:
-        state: link
-        src:  /etc/nginx/sites-available/{{ item }}
-        dest: /etc/nginx/sites-enabled/{{ item }}
-      with_items: ['1_vhost_not_found']
-      # with_items: ['0_http_to_https', '1_vhost_not_found']
-      notify: restart nginx
-
+    - { ip: 192.168.60.4, port: 5432, cidr: 24 }
+    - { ip: 192.168.60.5, port: 5432, cidr: 24 }
 
 - hosts: db
   tags: create-db
@@ -160,141 +23,18 @@
   - postgresql_user: name={{ db_user }} password={{ db_pass }}
   - postgresql_db:   name={{ db_name }} owner={{ db_user }}
 
-
-- hosts: app
-  tags: deploy-keys
-  become: yes
-  become_user: "{{ deploy_user }}"
+- hosts:  app
+  tags:   deploy-user
+  roles: [deploy_user]
   vars_files: ["{{ deploy_vars_file }}"]
   vars:
-    ssh_dir: ~/.ssh
-  tasks:
-  - file: path={{ ssh_dir }} state=directory mode=700
-  - copy: src=keys/{{ ssh_key }}     dest={{ ssh_dir }}/ mode=600
-  - copy: src=keys/{{ ssh_key }}.pub dest={{ ssh_dir }}/ mode=644
-  - blockinfile:
-      dest: "{{ ssh_dir }}/config"
-      create: yes
-      block: |
-        Host {{ gitlab_url }}
-          IdentityFile {{ ssh_dir }}/{{ ssh_key }}
-  - known_hosts:
-      host: "{{ gitlab_url }}"
-      key:  "|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
-
+    username: "{{ deploy_user      }}"
+    password: "{{ deploy_user_pass }}"
 
 - hosts: app
-  tags: deploy-backend
-  become: yes
-  become_user: "{{ deploy_user }}"
   vars_files: ["{{ deploy_vars_file }}"]
-  vars:
-    ssh_dir:   ~/.ssh
-    pyenv_dir: ~/.pyenv
-    deploy_to:      "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
-    virtualenv_dir: "{{ pyenv_dir }}/versions/{{ virtualenv }}"
-    timestamp:      "{{ ansible_date_time.iso8601_basic_short }}"
-    keep_releases:  "{{ releases_to_keep   | default(3) }}"
-    mail_domain:    "{{ email_domain       | default('altopraha.cz') }}"
-    default_from:   "{{ default_from_email | default(deploy_name   + '@' + mail_domain) }}"
-    support_mail:   "{{ support_email      | default('app-support' + '@' + mail_domain) }}"
-  environment:
-    DJANGO_ENV: production
-
-  pre_tasks:
-  - apt: update_cache=yes cache_valid_time=3600
-
-  tasks:
-  - apt: name=libpq-dev state=present
-    become: yes
-    become_user: root
-  - shell: . ~/.bashrc && pyenv install {{ python_version }}
-      creates={{ pyenv_dir }}/versions/{{ python_version }}/bin/python
-  - shell: . ~/.bashrc && pyenv virtualenv {{ python_version }} {{ virtualenv }}
-      creates={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/python
-  - file: path={{ deploy_to }}/{{ item }} state=directory
-    with_items: ['releases', 'shared/config', 'shared/log']
-  - copy:
-      force: no
-      dest: "{{ deploy_to }}/shared/config/config.yml"
-      content: |
-        production:
-          default_from_email: '{{ default_from }}'
-          support_email:      '{{ support_mail }}'
-  - copy:
-      force: no
-      dest: "{{ deploy_to }}/shared/config/database.yml"
-      content: |
-        production:
-          adapter: postgresql
-          host:     {{ db_host }}
-          port:     {{ db_port }}
-          database: {{ db_name }}
-          username: {{ db_user }}
-          password: {{ db_pass }}
-  - git:
-      repo:     "git@{{ gitlab_url }}:{{ repo_name }}.git"
-      dest:     "{{ deploy_to }}/repo"
-      key_file: "{{ ssh_dir }}/{{ ssh_key }}"
-      depth:    1
-    register: git_checkout
-
-  - block:
-    - copy:
-        src:  "{{ deploy_to }}/repo/"
-        dest: "{{ deploy_to }}/releases/{{ timestamp }}"
-        remote_src: yes
-    - file:
-        state: link
-        src:  "{{ deploy_to }}/releases/{{ timestamp }}"
-        dest: "{{ deploy_to }}/current"
-    - file:
-        state: absent
-        path: "{{ deploy_to }}/current/{{ item }}"
-      with_items: ["config", "log"]
-    - file:
-        state: link
-        src:  "{{ deploy_to }}/shared/{{ item }}"
-        dest: "{{ deploy_to }}/current/{{ item }}"
-      with_items: ["config", "log"]
-    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases + 1 }}"
-      register: releases_to_remove
-    - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
-      with_items: "{{ releases_to_remove.stdout_lines }}"
-    - pip:
-        executable: "{{ virtualenv_dir }}/bin/pip"
-        requirements: requirements.txt
-        state: latest
-        chdir: "{{ deploy_to }}/repo"
-    - command: passenger-config restart-app {{ deploy_to }}
-    - command:
-        cmd:   "{{ virtualenv_dir }}/bin/python manage.py migrate"
-        chdir: "{{ deploy_to }}/current"
-    - shell:
-        cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto || true"
-        chdir: "{{ deploy_to }}/current"
-    when: git_checkout.changed | bool
-
-
-- hosts: app
-  tags: deploy-nginx
-  become: yes
-
-  vars_files: ["{{ deploy_vars_file }}"]
-  vars:
-    vhost_name:         "datastore-{{ deploy_name }}"
-    frontend_deploy_to: "{{ deploy_dir }}/webui/{{ deploy_name }}"
-    backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
-
-  handlers:
-  - import_tasks: handlers.yml
-
-  tasks:
-  - template:
-      src: nginx/vhost.j2
-      dest: /etc/nginx/sites-available/{{ vhost_name }}
-  - file:
-      state: link
-      src:  /etc/nginx/sites-available/{{ vhost_name }}
-      dest: /etc/nginx/sites-enabled/{{ vhost_name }}
-    notify: restart nginx
+  roles:
+    - { role: nginx_setup,    tags: nginx-setup    }
+    - { role: python_setup,   tags: python-setup   }
+    - { role: deploy_backend, tags: deploy-backend }
+    - { role: deploy_nginx,   tags: deploy-nginx   }

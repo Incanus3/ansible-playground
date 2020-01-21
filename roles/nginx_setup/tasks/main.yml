@@ -1,0 +1,48 @@
+- block:
+  - apt: update_cache=yes cache_valid_time=3600
+  - apt: name=nginx,dirmngr,gnupg,apt-transport-https,ca-certificates,python3-apt state=present
+  - apt_key: keyserver=hkp://keyserver.ubuntu.com:80 id=561F9B9CAC40B2F7
+  - apt_repository:
+      filename: passenger
+      repo: "deb https://oss-binaries.phusionpassenger.com/apt/passenger bionic main"
+  - apt: name=libnginx-mod-http-passenger state=present
+    notify: restart nginx
+  - file:
+      state: link
+      src:  /usr/share/nginx/modules-available/mod-http-passenger.load
+      dest: /etc/nginx/modules-enabled/50-mod-http-passenger.conf
+  - lineinfile:
+      dest: /etc/nginx/nginx.conf
+      line: "\tlog_format custom '[$time_local] $request_time $body_bytes_sent $remote_addr $status $request_method $host $request_uri';"
+      regexp:      "^\\s*log_format\\s+custom\\s+"
+      insertafter: "^\\s*error_log\\s+"
+    notify: restart nginx
+  - lineinfile:
+      dest: /etc/nginx/conf.d/mod-http-passenger.conf
+      line:   "{{ item.line }}"
+      regexp: "{{ item.regexp }}"
+      create: yes
+    with_items:
+    - line:   "passenger_root /usr/lib/ruby/vendor_ruby/phusion_passenger/locations.ini;"
+      regexp: "^passenger_root\\s"
+    - line:   "passenger_ruby /usr/bin/passenger_free_ruby;"
+      regexp: "^passenger_ruby\\s"
+    - line:   "passenger_log_file /var/log/nginx/passenger.log;"
+      regexp: "^passenger_log_file\\s"
+    notify: restart nginx
+  - file:
+      state: absent
+      path:  /etc/nginx/sites-enabled/default
+    notify: restart nginx
+  - copy: src={{ item }} dest=/etc/nginx/sites-available/
+    with_items: ['0_http_to_https', '1_vhost_not_found']
+  - file:
+      state: link
+      src:  /etc/nginx/sites-available/{{ item }}
+      dest: /etc/nginx/sites-enabled/{{ item }}
+    with_items: ['1_vhost_not_found']
+    # with_items: ['0_http_to_https', '1_vhost_not_found']
+    notify: restart nginx
+  - ufw: rule=allow port={{ item }} proto=tcp
+    with_items: ["80", "443"]
+  become: yes

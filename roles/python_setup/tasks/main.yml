@@ -1,0 +1,21 @@
+- block:
+  - file:    path={{ local_bin_dir }} state=directory
+  - get_url: url=https://pyenv.run dest={{ local_bin_dir }}/install_pyenv.sh mode=744
+  - command:
+      cmd: "{{ local_bin_dir }}/install_pyenv.sh"
+      creates: "{{ pyenv_dir }}"
+  - blockinfile:
+      dest: ~/.bashrc
+      insertbefore: "If not running interactively, don't do anything"
+      block: |
+        export PYENV_ROOT="$HOME/.pyenv"
+        export PATH="$PYENV_ROOT/bin:$PATH"
+        eval "$(pyenv init -)"
+        eval "$(pyenv virtualenv-init -)"
+  become: yes
+  become_user: "{{ deploy_user }}"
+
+- block:
+  - apt: update_cache=yes cache_valid_time=3600
+  - apt: name=build-essential,libssl-dev,zlib1g-dev,libbz2-dev,libreadline-dev,libffi-dev state=present
+  become: yes

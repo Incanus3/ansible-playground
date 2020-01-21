@@ -1,0 +1,24 @@
+---
+- user:
+    name:     "{{ username }}"
+    password: "{{ password | password_hash('sha512') }}"
+    groups: ['sudo']
+    shell: /bin/bash
+    update_password: on_create
+  become: yes
+
+- block:
+  - file: path={{ ssh_dir }} state=directory mode=700
+  - copy: src=keys/{{ ssh_key }}     dest={{ ssh_dir }}/ mode=600
+  - copy: src=keys/{{ ssh_key }}.pub dest={{ ssh_dir }}/ mode=644
+  - blockinfile:
+      dest: "{{ ssh_dir }}/config"
+      create: yes
+      block: |
+        Host {{ gitlab_url }}
+          IdentityFile {{ ssh_dir }}/{{ ssh_key }}
+  - known_hosts:
+      host: "{{ gitlab_url }}"
+      key:  "|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
+  become: yes
+  become_user: "{{ username }}"

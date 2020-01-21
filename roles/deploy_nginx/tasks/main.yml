@@ -1,0 +1,10 @@
+- block:
+  - template:
+      src: vhost.j2
+      dest: /etc/nginx/sites-available/{{ vhost_name }}
+  - file:
+      state: link
+      src:  /etc/nginx/sites-available/{{ vhost_name }}
+      dest: /etc/nginx/sites-enabled/{{ vhost_name }}
+    notify: restart nginx
+  become: yes

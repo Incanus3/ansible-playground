@@ -1,0 +1,3 @@
+vhost_name:         "datastore-{{ deploy_name }}"
+frontend_deploy_to: "{{ deploy_dir }}/webui/{{ deploy_name }}"
+backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"

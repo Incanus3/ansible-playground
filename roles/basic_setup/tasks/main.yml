@@ -1,0 +1,11 @@
+---
+- block:
+  - apt: update_cache=yes cache_valid_time=3600
+  - apt: name=tree,htop state=present
+
+  - apt:     name=ntp state=present
+  - service: name=ntp state=started enabled=yes
+
+  - ufw: state=enabled
+  - ufw: rule=allow port=22 proto=tcp
+  become: yes

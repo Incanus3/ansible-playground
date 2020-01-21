@@ -45,6 +45,7 @@ Vagrant.configure(VAGRANT_API_VERSION) do |config|
     ansible.playbook           = 'playbook.yml'
     ansible.inventory_path     = 'hosts'
     ansible.compatibility_mode = '2.0'
+    ansible.raw_arguments      = ["-e", "deploy_vars_file=deploy_vars.yml"]
   end
 
   config.vm.define "app1" do |app|

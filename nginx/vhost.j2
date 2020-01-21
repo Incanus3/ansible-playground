@@ -1,0 +1,36 @@
+server {
+  listen 80;
+  listen 443 ssl;
+
+  root        {{ backend_deploy_to }}/current;
+  server_name {{ ' '.join(backend_server_names) }};
+
+  access_log /var/log/nginx/{{ vhost_name }}-backend-access.log custom;
+  error_log  /var/log/nginx/{{ vhost_name }}-backend-error.log;
+
+  passenger_enabled        on;
+  passenger_app_group_name {{ vhost_name }};
+  passenger_env_var        DJANGO_ENV production;
+  passenger_app_root       {{ backend_deploy_to }}/current;
+  passenger_python         /home/alto/.pyenv/versions/{{ virtualenv }}/bin/python;
+
+  # ssl_certificate     /etc/letsencrypt/live/{{ cert_name }}/fullchain.pem;
+  # ssl_certificate_key /etc/letsencrypt/live/{{ cert_name }}/privkey.pem;
+}
+
+server {
+  listen 80;
+  listen 443 ssl;
+
+  root        {{ frontend_deploy_to }}/current;
+  server_name {{ ' '.join(frontend_server_names) }};
+
+  index index.html;
+  try_files $uri /index.html;
+
+  access_log /var/log/nginx/{{ vhost_name }}-frontend-access.log custom;
+  error_log  /var/log/nginx/{{ vhost_name }}-frontend-error.log;
+
+  # ssl_certificate     /etc/letsencrypt/live/{{ cert_name }}/fullchain.pem;
+  # ssl_certificate_key /etc/letsencrypt/live/{{ cert_name }}/privkey.pem;
+}

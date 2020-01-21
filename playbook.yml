@@ -24,19 +24,41 @@
 
 - hosts: db
   tags: postgres-setup
-  vars:
-    allowed_clients:
-    - host: 192.168.60.4
-      port: 5432
-    - host: 192.168.60.5
-      port: 5432
   become: yes
+
+  vars:
+    postgresql_version: 10
+    postgresql_cluster: main
+    allowed_clients:
+    - ip: 192.168.60.4
+      port: 5432
+      cidr: 24
+    - ip: 192.168.60.5
+      port: 5432
+      cidr: 24
+
+  handlers:
+  - name: restart postgres
+    service: name=postgresql state=restarted
+
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
+
   tasks:
   - apt:     name=postgresql,python3-psycopg2 state=present
+  - lineinfile:
+      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/postgresql.conf
+      line:        "listen_addresses = '*'"
+      regexp:      "^listen_addresses\\s*="
+      insertafter: "Connection Settings"
+    notify: restart postgres
+  - lineinfile:
+      dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/pg_hba.conf
+      line: "host all all {{ item.ip }}/{{ item.cidr }} md5"
+    with_items: "{{ allowed_clients }}"
+    notify: restart postgres
   - service: name=postgresql state=started enabled=yes
-  - ufw: rule=allow proto=tcp src={{ item.host }} port={{ item.port }}
+  - ufw: rule=allow proto=tcp src={{ item.ip }} port={{ item.port }}
     with_items: "{{ allowed_clients }}"
 
 
@@ -66,6 +88,65 @@
   - apt: name=build-essential,libssl-dev,zlib1g-dev,libbz2-dev,libreadline-dev,libffi-dev state=present
     become: yes
     become_user: root
+
+
+- hosts: app
+  tags: nginx-setup
+  become: yes
+
+  pre_tasks:
+  - apt: update_cache=yes cache_valid_time=3600
+
+  handlers:
+  - name: restart nginx
+    service: name=nginx state=restarted
+
+  tasks:
+    - ufw: rule=allow port={{ item }} proto=tcp
+      with_items: ["80", "443"]
+    - apt: name=nginx,dirmngr,gnupg,apt-transport-https,ca-certificates,python3-apt state=present
+    - apt_key: keyserver=hkp://keyserver.ubuntu.com:80 id=561F9B9CAC40B2F7
+    - apt_repository:
+        filename: passenger
+        repo: "deb https://oss-binaries.phusionpassenger.com/apt/passenger bionic main"
+    - apt: name=libnginx-mod-http-passenger state=present
+      notify: restart nginx
+    - file:
+        state: link
+        src:  /usr/share/nginx/modules-available/mod-http-passenger.load
+        dest: /etc/nginx/modules-enabled/50-mod-http-passenger.conf
+    - lineinfile:
+        dest: /etc/nginx/nginx.conf
+        line: "\tlog_format custom '[$time_local] $request_time $body_bytes_sent $remote_addr $status $request_method $host $request_uri';"
+        regexp:      "^\\s*log_format\\s+custom\\s+"
+        insertafter: "^\\s*error_log\\s+"
+      notify: restart nginx
+    - lineinfile:
+        dest: /etc/nginx/conf.d/mod-http-passenger.conf
+        line:   "{{ item.line }}"
+        regexp: "{{ item.regexp }}"
+        create: yes
+      with_items:
+      - line:   "passenger_root /usr/lib/ruby/vendor_ruby/phusion_passenger/locations.ini;"
+        regexp: "^passenger_root\\s"
+      - line:   "passenger_ruby /usr/bin/passenger_free_ruby;"
+        regexp: "^passenger_ruby\\s"
+      - line:   "passenger_log_file /var/log/nginx/passenger.log;"
+        regexp: "^passenger_log_file\\s"
+      notify: restart nginx
+    - file:
+        state: absent
+        path:  /etc/nginx/sites-enabled/default
+      notify: restart nginx
+    - copy: src=nginx/{{ item }} dest=/etc/nginx/sites-available/
+      with_items: ['1_vhost_not_found']
+      # with_items: ['0_http_to_https', '1_vhost_not_found']
+    - file:
+        state: link
+        src:  /etc/nginx/sites-available/{{ item }}
+        dest: /etc/nginx/sites-enabled/{{ item }}
+      with_items: ['0_http_to_https', '1_vhost_not_found']
+      notify: restart nginx
 
 
 - hosts: db
@@ -109,15 +190,24 @@
   vars:
     ssh_dir: ~/.ssh
     ssh_key: ansible_testing
+    db_host: 192.168.60.6
+    db_port: 5432
+    db_user: alto
+    db_pass: alto
+    db_name: kredit
     pyenv_dir: ~/.pyenv
+    deploy_name: kredit
     deploy_dir: ~/deploy
     deploy_to: "{{ deploy_dir }}/datastore/datastore-kredit"
     repo_name: python/datastore-kredit
     gitlab_url: gitlab.alto-apps.mine.nu
     python_version: 3.8.1
     virtualenv: kredit3.8
+    virtualenv_dir: "{{ pyenv_dir }}/versions/{{ virtualenv }}"
     timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
     releases_to_keep: 3
+  environment:
+    DJANGO_ENV: production
   become: yes
   become_user: alto
 
@@ -132,7 +222,26 @@
       creates={{ pyenv_dir }}/versions/{{ python_version }}/bin/python
   - shell: . ~/.bashrc && pyenv virtualenv {{ python_version }} {{ virtualenv }}
       creates={{ pyenv_dir }}/versions/{{ virtualenv }}/bin/python
-  - file: path={{ deploy_to }}/releases state=directory
+  - file: path={{ deploy_to }}/{{ item }} state=directory
+    with_items: ['releases', 'shared/config', 'shared/log']
+  - copy:
+      force: no
+      dest: "{{ deploy_to }}/shared/config/config.yml"
+      content: |
+        production:
+          default_from_email: '{{ deploy_name }}@altopraha.cz'
+          support_email: 'app-support@altopraha.cz'
+  - copy:
+      force: no
+      dest: "{{ deploy_to }}/shared/config/database.yml"
+      content: |
+        production:
+          adapter: postgresql
+          host:     {{ db_host }}
+          port:     {{ db_port }}
+          database: {{ db_name }}
+          username: {{ db_user }}
+          password: {{ db_pass }}
   - git:  >
       repo=git@{{ gitlab_url }}:{{ repo_name }}.git
       dest={{ deploy_to }}/repo depth=1
@@ -148,13 +257,59 @@
         state: link
         src:  "{{ deploy_to }}/releases/{{ timestamp }}"
         dest: "{{ deploy_to }}/current"
+    - file:
+        state: absent
+        path: "{{ deploy_to }}/current/{{ item }}"
+      with_items: ["config", "log"]
+    - file:
+        state: link
+        src:  "{{ deploy_to }}/shared/{{ item }}"
+        dest: "{{ deploy_to }}/current/{{ item }}"
+      with_items: ["config", "log"]
     - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ releases_to_keep + 1 }}"
       register: releases_to_remove
     - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
       with_items: "{{ releases_to_remove.stdout_lines }}"
     - pip:
-        executable: "{{ pyenv_dir }}/versions/{{ virtualenv }}/bin/pip"
+        executable: "{{ virtualenv_dir }}/bin/pip"
         requirements: requirements.txt
         state: latest
         chdir: "{{ deploy_to }}/repo"
+    - command: passenger-config restart-app {{ deploy_to }}
+    - command:
+        cmd:   "{{ virtualenv_dir }}/bin/python manage.py migrate"
+        chdir: "{{ deploy_to }}/current"
+    - command:
+        cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto"
+        chdir: "{{ deploy_to }}/current"
+      ignore_errors: true
     when: git_checkout.changed | bool
+
+
+- hosts: app
+  tags: deploy-nginx
+  become: yes
+
+  vars:
+    virtualenv: kredit3.8
+    cert_name:  example.com
+    deploy_dir: /home/alto/deploy
+    vhost_name: datastore-kredit
+    frontend_deploy_to: "{{ deploy_dir }}/webui/kredit"
+    backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-kredit"
+    frontend_server_names: ["datastore-kredit.example.com", "datastore-kredit.example.org"]
+    backend_server_names:  ["datastore-kredit-backend.example.com", "datastore-kredit-backend.example.org"]
+
+  handlers:
+  - name: restart nginx
+    service: name=nginx state=restarted
+
+  tasks:
+  - template:
+      src: nginx/vhost.j2
+      dest: /etc/nginx/sites-available/{{ vhost_name }}
+  - file:
+      state: link
+      src:  /etc/nginx/sites-available/{{ vhost_name }}
+      dest: /etc/nginx/sites-enabled/{{ vhost_name }}
+    notify: restart nginx

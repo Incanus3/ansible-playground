@@ -42,8 +42,7 @@
       cidr: 24
 
   handlers:
-  - name: restart postgres
-    service: name=postgresql state=restarted
+  - import_tasks: handlers.yml
 
   pre_tasks:
   - apt: update_cache=yes cache_valid_time=3600
@@ -102,8 +101,7 @@
   - apt: update_cache=yes cache_valid_time=3600
 
   handlers:
-  - name: restart nginx
-    service: name=nginx state=restarted
+  - import_tasks: handlers.yml
 
   tasks:
     - ufw: rule=allow port={{ item }} proto=tcp
@@ -289,8 +287,7 @@
     backend_deploy_to:  "{{ deploy_dir }}/datastore/datastore-{{ deploy_name }}"
 
   handlers:
-  - name: restart nginx
-    service: name=nginx state=restarted
+  - import_tasks: handlers.yml
 
   tasks:
   - template:

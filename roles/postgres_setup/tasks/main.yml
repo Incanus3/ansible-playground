@@ -10,10 +10,10 @@
     notify: restart postgres
   - lineinfile:
       dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/pg_hba.conf
-      line: "host all all {{ item.ip }}/{{ item.cidr }} md5"
+      line: "host all all {{ item }}/{{ cidr }} md5"
     with_items: "{{ allowed_clients }}"
     notify: restart postgres
   - service: name=postgresql state=started enabled=yes
-  - ufw: rule=allow proto=tcp src={{ item.ip }} port={{ item.port | string }}
+  - ufw: rule=allow proto=tcp src={{ item }} port={{ postgresql_port | string }}
     with_items: "{{ allowed_clients }}"
   become: yes

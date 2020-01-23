@@ -10,9 +10,7 @@
     # TODO: collect these from host facts
     postgresql_version: 10
     postgresql_cluster: main
-    allowed_clients:
-    - { ip: 192.168.60.4, port: 5432, cidr: 24 }
-    - { ip: 192.168.60.5, port: 5432, cidr: 24 }
+    allowed_clients: "{{ groups.app | map('extract', hostvars, 'ansible_host') | list }}"
 
 - hosts: db
   tags: create-db

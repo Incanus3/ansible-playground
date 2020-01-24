@@ -30,7 +30,7 @@
           username: {{ db_user }}
           password: {{ db_pass }}
   - git:
-      repo:     "git@{{ gitlab_url }}:{{ repo_name }}.git"
+      repo:     "git@{{ gitlab_url }}:{{ backend_repo_name }}.git"
       dest:     "{{ deploy_to }}/repo"
       key_file: "{{ ssh_dir }}/{{ ssh_key }}"
       depth:    1

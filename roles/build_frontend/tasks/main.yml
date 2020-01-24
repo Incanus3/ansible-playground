@@ -1,0 +1,39 @@
+---
+- set_fact:
+    frontend_build_path:       "{{ role_path }}/build"
+    frontend_build_image_name: "ansible-build-image-{{ deploy_name }}-frontend"
+    frontend_build_image_tag:  "{{ ansible_date_time.iso8601_basic_short }}"
+# TODO: add cache invalidation when finished
+- command: >
+    docker build
+      --ssh default
+      --tag {{ frontend_build_image_name }}:{{ frontend_build_image_tag }}
+      --build-arg "repo_url=git@{{ gitlab_url }}:{{ frontend_repo_name }}.git"
+      --build-arg "project_branch={{ frontend_branch }}"
+      --build-arg "project_ref={{ frontend_ref }}"
+      --build-arg "env_prefix={{ frontend_env_prefix }}"
+      --build-arg "frontend_url={{ frontend_url }}"
+      --build-arg "backend_url={{ backend_url }}"
+      {{ role_path }}/docker
+  environment:
+    DOCKER_BUILDKIT: 1
+# docker_image module doesn't seem to support docker buildkit
+# - docker_image:
+#     build:
+#       path: "{{ role_path }}/docker"
+#       pull: no
+#     name: ansible-build-frontend-xxx
+#     source: build
+#   environment:
+#     DOCKER_BUILDKIT: 1
+- docker_container:
+    name: "ansible-build-{{ deploy_name }}-frontend"
+    image: "{{ frontend_build_image_name }}:{{ frontend_build_image_tag }}"
+    detach: no
+    # output_logs: yes
+    # command: "yarn build"
+    volumes:
+    - "{{ frontend_build_path }}:/deploy/build"
+    env:
+      CHOWN_UID: "{{ ansible_user_uid | string }}"
+      CHOWN_GID: "{{ ansible_user_gid | string }}"

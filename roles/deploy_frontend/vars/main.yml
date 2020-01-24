@@ -1,0 +1,2 @@
+timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+deploy_to: "{{ deploy_dir }}/webui/{{ deploy_name }}"

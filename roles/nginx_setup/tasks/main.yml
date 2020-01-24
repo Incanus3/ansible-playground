@@ -11,6 +11,7 @@
       state: link
       src:  /usr/share/nginx/modules-available/mod-http-passenger.load
       dest: /etc/nginx/modules-enabled/50-mod-http-passenger.conf
+    notify: restart nginx
   - lineinfile:
       dest: /etc/nginx/nginx.conf
       line: "\tlog_format custom '[$time_local] $request_time $body_bytes_sent $remote_addr $status $request_method $host $request_uri';"
@@ -36,6 +37,7 @@
     notify: restart nginx
   - copy: src={{ item }} dest=/etc/nginx/sites-available/
     with_items: ['0_http_to_https', '1_vhost_not_found']
+    notify: restart nginx
   - file:
       state: link
       src:  /etc/nginx/sites-available/{{ item }}

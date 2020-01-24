@@ -1,7 +1,7 @@
 ---
 - block:
   - apt: update_cache=yes cache_valid_time=3600
-  - apt: name=postgresql,python3-psycopg2 state=present
+  - apt: name=postgresql-{{ postgresql_version }},python3-psycopg2 state=present
   - lineinfile:
       dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/postgresql.conf
       line:        "listen_addresses = '*'"
@@ -10,10 +10,12 @@
     notify: restart postgres
   - lineinfile:
       dest: /etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}/pg_hba.conf
-      line: "host all all {{ item }}/{{ cidr }} md5"
-    with_items: "{{ allowed_clients }}"
+      line: "host all all {{ item.address + '/' + ((item.address + '/' + item.netmask) | ipaddr('prefix') | string ) }} md5"
+    with_items: "{{ allowed_clients_eth1_ipv4 }}"
     notify: restart postgres
   - service: name=postgresql state=started enabled=yes
-  - ufw: rule=allow proto=tcp src={{ item }} port={{ postgresql_port | string }}
-    with_items: "{{ allowed_clients }}"
+  - ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
+    with_items: "{{ allowed_clients_eth1_ipv4 }}"
   become: yes
+  vars:
+    - allowed_clients_eth1_ipv4: "{{ allowed_clients | map('extract', hostvars, ['ansible_eth1', 'ipv4']) | list }}"

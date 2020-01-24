@@ -3,7 +3,7 @@ server {
   listen 443 ssl;
 
   root        {{ backend_deploy_to }}/current;
-  server_name {{ ' '.join(backend_server_names) }};
+  server_name {{ backend_server_names | join(' ') }};
 
   access_log /var/log/nginx/{{ vhost_name }}-backend-access.log custom;
   error_log  /var/log/nginx/{{ vhost_name }}-backend-error.log;
@@ -23,7 +23,7 @@ server {
   listen 443 ssl;
 
   root        {{ frontend_deploy_to }}/current;
-  server_name {{ ' '.join(frontend_server_names) }};
+  server_name {{ frontend_server_names | join(' ') }};
 
   index index.html;
   try_files $uri /index.html;

@@ -1,5 +1,10 @@
 ---
 - hosts:  all
+  tags:   always
+  pre_tasks:
+  - setup:
+
+- hosts:  all
   tags:   basic-setup
   roles: [basic_setup]
 
@@ -7,10 +12,7 @@
   tags:   postgres-setup
   roles: [postgres_setup]
   vars:
-    # TODO: collect these from host facts
-    postgresql_version: 10
-    postgresql_cluster: main
-    allowed_clients: "{{ groups.app | map('extract', hostvars, 'ansible_host') | list }}"
+    allowed_clients: "{{ groups.app }}"
 
 - hosts: db
   tags: create-db

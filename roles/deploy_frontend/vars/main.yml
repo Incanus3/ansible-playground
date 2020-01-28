@@ -1,2 +1,6 @@
-timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+timestamp: "{{ ansible_facts.date_time.iso8601_basic_short }}"
 deploy_to: "{{ deploy_dir }}/webui/{{ deploy_name }}"
+
+frontend_build_path:       "{{ role_path }}/build"
+frontend_build_image_name: "ansible-build-image-{{ deploy_name }}-frontend"
+frontend_build_image_tag:  "{{ timestamp }}"

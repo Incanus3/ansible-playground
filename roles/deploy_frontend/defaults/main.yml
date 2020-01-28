@@ -1,0 +1,5 @@
+frontend_branch: master
+frontend_ref:    HEAD
+# TODO: change to https when ssl certs are autodeployed
+frontend_url:    "http://{{ frontend_server_names | first }}"
+backend_url:     "http://{{ backend_server_names  | first }}"

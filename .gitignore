@@ -1,4 +1,5 @@
 *.log
+*.pyc
 .vagrant
 keys/*
 !keys/.keep

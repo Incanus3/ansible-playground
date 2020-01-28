@@ -1,0 +1,21 @@
+---
+- hosts: db
+  tags: create-db
+  become: yes
+  become_user: postgres
+  vars_files: ["{{ deploy_vars_file }}"]
+  tasks:
+  - postgresql_user: name={{ db_user }} password={{ db_pass }}
+  - postgresql_db:   name={{ db_name }} owner={{ db_user }}
+
+- hosts: app
+  gather_facts: yes
+  vars_files: ["{{ deploy_vars_file }}"]
+  roles:
+    - role: deploy_user
+      tags: deploy-user
+      vars: { username: "{{ deploy_user }}", password: "{{ deploy_user_pass }}" }
+    - { role: python_setup,    tags: python-setup    }
+    - { role: deploy_backend,  tags: deploy-backend  }
+    - { role: deploy_frontend, tags: deploy-frontend }
+    - { role: deploy_nginx,    tags: deploy-nginx    }

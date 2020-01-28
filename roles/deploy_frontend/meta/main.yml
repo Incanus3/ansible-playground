@@ -1,7 +1,0 @@
----
-dependencies:
-- hosts: localhost
-  role: build_frontend
-  tags: build-frontend
-  connection: local
-  vars_files: ["{{ deploy_vars_file }}"]

@@ -1,0 +1,19 @@
+---
+- hosts:  all,!localhost
+  tags:   always
+  pre_tasks:
+  - setup:
+
+- hosts:  all
+  tags:   basic-setup
+  roles: [basic_setup]
+
+- hosts:  db
+  tags:   postgres-setup
+  roles: [postgres_setup]
+  vars:
+    allowed_clients: "{{ groups.app }}"
+
+- hosts:  app
+  tags:   nginx-setup
+  roles: [nginx_setup]

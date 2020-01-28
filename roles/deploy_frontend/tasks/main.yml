@@ -1,15 +1,15 @@
 ---
 - block:
-  - copy:
-      src:  "{{ frontend_build_path }}/"
-      dest: "{{ deploy_to }}/releases/{{ timestamp }}"
-  - file:
-      state: link
-      src:  "{{ deploy_to }}/releases/{{ timestamp }}"
-      dest: "{{ deploy_to }}/current"
-  - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases + 1 }}"
-    register: releases_to_remove
-  - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
-    with_items: "{{ releases_to_remove.stdout_lines }}"
+  - import_tasks: build.yml
+  delegate_to: localhost
+  run_once: True
+
+- block:
+  - import_tasks: deploy.yml
   become: yes
   become_user: "{{ deploy_user }}"
+
+- block:
+  - import_tasks: clean.yml
+  delegate_to: localhost
+  run_once: True

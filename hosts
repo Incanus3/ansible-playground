@@ -1,26 +1,19 @@
-app1 ansible_host=192.168.60.4
-app2 ansible_host=192.168.60.5
-db1  ansible_host=192.168.60.6
+app1 ansible_host=192.168.60.10
+db1  ansible_host=192.168.60.20 postgresql_replication_role=master
+db2  ansible_host=192.168.60.21 postgresql_replication_role=slave
 
-# Application servers
 [app]
-app[1:2]
+app1
+
+[db]
+db1
+db2
 
 [app:vars]
 deploy_user=alto
 deploy_user_pass=alto
 deploy_dir=/home/alto/deploy
 
-# Database server
-[db]
-db1
-
-# Group 'multi' with all servers
-[all:children]
-app
-db
-
-# Variables that will be applied to all servers
 [all:vars]
 ansible_ssh_user=vagrant
 ansible_ssh_private_key_file=~/.vagrant.d/insecure_private_key

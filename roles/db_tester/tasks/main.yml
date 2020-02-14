@@ -1,0 +1,11 @@
+---
+- apt: name=libpq-dev
+  become: true
+
+- copy: src=db-tester dest=~/deploy/ mode=0750
+- command:
+    cmd: bundle --path=vendor/bundle
+    chdir: ~/deploy/db-tester
+- command:
+    cmd: bundle exec ./run.rb
+    chdir: ~/deploy/db-tester

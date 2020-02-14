@@ -9,11 +9,45 @@
   roles: [basic_setup]
 
 - hosts:  db
-  tags:   postgres-setup
-  roles: [postgres_setup]
   vars:
-    allowed_clients: "{{ groups.app }}"
+    backups_dir: /mnt/backups
 
-- hosts:  app
-  tags:   nginx-setup
-  roles: [nginx_setup]
+  pre_tasks:
+    - file:
+        path: "{{ backups_dir }}"
+        state: directory
+        group: postgres
+        mode: 0770
+      tags: postgres-setup
+      become: true
+
+  roles:
+    - role: postgres_setup
+      tags: postgres-setup
+      vars:
+        allowed_clients: "{{ groups.app }}"
+
+  tasks:
+    - become: yes
+      become_user: postgres
+      tags: create-db
+      block:
+        - postgresql_user: name=test password=test
+        - postgresql_db:   name=test owner=test
+
+# - hosts:  app
+#   tags:   nginx-setup
+#   roles: [nginx_setup]
+
+- hosts: app
+  roles:
+    - role: geerlingguy.ruby
+      tags: ruby-setup
+      become: true
+      vars:
+        ruby_install_from_source: true
+        ruby_version: 2.7.0
+        ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
+
+    - role: db_tester
+      tags: db-tester

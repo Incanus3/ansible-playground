@@ -1,3 +1,5 @@
+allowed_clients: []
 postgresql_port: 5432
 postgresql_version: 10
 postgresql_cluster: main
+postgresql_replication_role: null

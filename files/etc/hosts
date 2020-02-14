@@ -1,0 +1,5 @@
+127.0.0.1 localhost
+
+192.168.60.10 app1.test app1
+192.168.60.20 db1.test  db1
+192.168.60.21 db2.test  db2

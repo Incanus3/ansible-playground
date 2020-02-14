@@ -1,3 +1,4 @@
+---
 - block:
   - file:    path={{ local_bin_dir }} state=directory
   - get_url: url=https://pyenv.run dest={{ local_bin_dir }}/install_pyenv.sh mode=744

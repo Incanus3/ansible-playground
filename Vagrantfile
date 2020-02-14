@@ -24,39 +24,32 @@ Vagrant.configure(VAGRANT_API_VERSION) do |config|
   config.vm.box = 'generic/ubuntu1804'
   config.vm.synced_folder '.', '/vagrant', disabled: true
 
-  config.vm.provider 'virtualbox' do |vb|
-    vb.cpus         = 1
-    vb.memory       = 512
-    vb.linked_clone = true
+  # config.vm.provider 'virtualbox' do |vb|
+  #   vb.cpus         = 1
+  #   vb.memory       = 512
+  #   vb.linked_clone = true
 
-    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-    vb.customize ["modifyvm", :id, "--ioapic",              "on"]
-  end
+  #   vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+  #   vb.customize ["modifyvm", :id, "--ioapic",              "on"]
+  # end
 
   config.vm.provider 'libvirt' do |lv|
     lv.cpus   = 1
     lv.memory = 512
   end
 
-  config.vm.provision 'ansible' do |ansible|
-    ansible.playbook           = 'main.yml'
-    ansible.inventory_path     = 'hosts'
-    ansible.compatibility_mode = '2.0'
-    ansible.raw_arguments      = ["-e", "deploy_vars_file=deploy_vars.yml"]
-  end
-
   config.vm.define "app1" do |app1|
-    app1.vm.hostname = "orc-app1.test"
-    app1.vm.network :private_network, ip: "192.168.60.4"
+    app1.vm.hostname = "app1.test"
+    app1.vm.network :private_network, ip: "192.168.60.10"
   end
 
-  config.vm.define "app2" do |app2|
-    app2.vm.hostname = "orc-app2.test"
-    app2.vm.network :private_network, ip: "192.168.60.5"
+  config.vm.define "db1" do |db1|
+    db1.vm.hostname = "db1.test"
+    db1.vm.network :private_network, ip: "192.168.60.20"
   end
 
-  config.vm.define "db1" do |db|
-    db.vm.hostname = "orc-db.test"
-    db.vm.network :private_network, ip: "192.168.60.6"
+  config.vm.define "db2" do |db2|
+    db2.vm.hostname = "db2.test"
+    db2.vm.network :private_network, ip: "192.168.60.21"
   end
 end

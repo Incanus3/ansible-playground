@@ -1,0 +1,6 @@
+---
+- include_tasks: set_up_cluster.yml
+  run_once: true
+  loop: "{{ role_group_names }}"
+  loop_control:
+    loop_var: cluster_role_group

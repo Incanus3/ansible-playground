@@ -6,7 +6,7 @@
     set_fact:
       postgresql_global_config_options:
         "{{ postgresql_global_config_options + [{ 'option': 'listen_addresses', 'value': '*' }] }}"
-    when: allowed_clients | length > 0
+    when: postgresql_allowed_clients | length > 0
   - name: set up WAL archiving
     set_fact:
       postgresql_global_config_options:
@@ -17,21 +17,22 @@
         - name: replicator
           password: replicator
           role_attr_flags: REPLICATION
-    when: postgresql_replication_role == 'master'
+    # when: postgresql_replication_role == 'master'
   - import_role: name=geerlingguy.postgresql
   - name: allow connection from clients
     ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
-    with_items: "{{ allowed_clients_eth1_ipv4 }}"
+    with_items: "{{ allowed_clients_eth1_ipv4 + replication_clients_eth1_ipv4 }}"
 
   vars:
+    allowed_clients_eth1_ipv4:
+      "{{ postgresql_allowed_clients | map('extract', hostvars, ['ansible_facts', 'eth1', 'ipv4']) | list }}"
+    postgresql_hba_entries:
+      "{{ allowed_clients_eth1_ipv4 | map('ipv4_to_hba') | list | add_base_hba_entries }}"
+
     replication_clients:
       "{{ groups.db | difference([inventory_hostname]) }}"
-    allowed_clients_eth1_ipv4:
-      "{{ allowed_clients     | map('extract', hostvars, ['ansible_facts', 'eth1', 'ipv4']) | list }}"
     replication_clients_eth1_ipv4:
       "{{ replication_clients | map('extract', hostvars, ['ansible_facts', 'eth1', 'ipv4']) | list }}"
-    postgresql_hba_entries:
-      "{{ allowed_clients_eth1_ipv4     | map('ipv4_to_hba') | list | add_base_hba_entries }}"
     replication_hba_entries:
       "{{ replication_clients_eth1_ipv4 | map('ipv4_to_hba', database = 'replication') | list
         | add_base_replication_hba_entries }}"
@@ -46,4 +47,5 @@
       - option: 'archive_timeout'
         value: 900 # 15 min
       - option: 'archive_command'
-        value: 'test ! -f {{ backups_dir }}/%f && cp %p {{ backups_dir }}/%f'
+        # value: 'test ! -f {{ backups_dir }}/%f && cp %p {{ backups_dir }}/%f'
+        value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"

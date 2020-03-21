@@ -1,14 +1,21 @@
 ---
 - block:
-  - apt: update_cache=yes cache_valid_time=3600
-  - apt: name=ack,tree,htop,net-tools state=present
+  - name: update apt cache
+    apt: update_cache=yes cache_valid_time=3600
+  - name: install base packages
+    apt: name=ack,tree,htop,net-tools state=present
 
-  - apt:     name=ntp,openntpd state=absent
-  - service: name=systemd-timesyncd state=started enabled=yes
+  - name: uninstall other ntp implementations
+    apt:     name=ntp,openntpd state=absent
+  - name: enable and start systemd-timesyncd
+    service: name=systemd-timesyncd state=started enabled=yes
 
-  - ufw: rule=allow port=22 proto=tcp
-  - ufw: state=enabled
+  - name: allow ssh connection on firewall
+    ufw: rule=allow port=22 proto=tcp
+  - name: enable firewall
+    ufw: state=enabled
 
-  - copy: src=etc/hosts dest=/etc/hosts
+  - name: populate /etc/hosts
+    copy: src=etc/hosts dest=/etc/hosts
 
   become: yes

@@ -1,0 +1,29 @@
+{% for port in ssh_ports %}
+Port {{ port }}
+{% endfor %}
+
+UsePAM {{ ssh_use_pam | bool_to_str }}
+UseDNS no
+
+PubkeyAuthentication            yes
+PasswordAuthentication          no
+ChallengeResponseAuthentication no
+GSSAPIAuthentication            no
+PermitRootLogin                 no
+
+ClientAliveInterval 15
+ClientAliveCountMax 20
+
+AcceptEnv LANG LC_*
+
+Subsystem sftp /usr/lib/openssh/sftp-server
+{% if ssh_password_login_users | length > 0 %}
+
+Match User {{ ssh_password_login_users | join(',') }}
+  PasswordAuthentication yes
+{% endif %}
+{% if ssh_root_login_addresses | length > 0 %}
+
+Match Address {{ ssh_root_login_addresses | join(',') }}
+  PermitRootLogin forced-commands-only
+{% endif %}

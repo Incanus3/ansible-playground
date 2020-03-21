@@ -40,16 +40,26 @@ Vagrant.configure(VAGRANT_API_VERSION) do |config|
 
   config.vm.define "app1" do |app1|
     app1.vm.hostname = "app1.test"
-    app1.vm.network :private_network, ip: "192.168.60.10"
+    app1.vm.network :private_network, ip: "192.168.60.11"
+  end
+
+  config.vm.define "app2" do |app2|
+    app2.vm.hostname = "app2.test"
+    app2.vm.network :private_network, ip: "192.168.60.12"
   end
 
   config.vm.define "db1" do |db1|
     db1.vm.hostname = "db1.test"
-    db1.vm.network :private_network, ip: "192.168.60.20"
+    db1.vm.network :private_network, ip: "192.168.60.21"
   end
 
   config.vm.define "db2" do |db2|
     db2.vm.hostname = "db2.test"
-    db2.vm.network :private_network, ip: "192.168.60.21"
+    db2.vm.network :private_network, ip: "192.168.60.22"
+  end
+
+  config.vm.define "db3" do |db2|
+    db2.vm.hostname = "db3.test"
+    db2.vm.network :private_network, ip: "192.168.60.23"
   end
 end

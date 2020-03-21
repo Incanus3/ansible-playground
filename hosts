@@ -1,13 +1,27 @@
-app1 ansible_host=192.168.60.10
-db1  ansible_host=192.168.60.20 postgresql_replication_role=master
-db2  ansible_host=192.168.60.21 postgresql_replication_role=slave
+app1 ansible_host=192.168.60.11
+app2 ansible_host=192.168.60.12
+
+db1  ansible_host=192.168.60.21
+db2  ansible_host=192.168.60.22
+db3  ansible_host=192.168.60.23
 
 [app]
 app1
+app2
 
 [db]
 db1
 db2
+db3
+
+[ng1]
+app1
+db1
+
+[ng2]
+app2
+db2
+db3
 
 [app:vars]
 deploy_user=alto
@@ -16,4 +30,13 @@ deploy_dir=/home/alto/deploy
 
 [all:vars]
 ansible_ssh_user=vagrant
+ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_private_key_file=~/.vagrant.d/insecure_private_key
+
+[ng1:vars]
+# network_group=ng1
+network_group=all
+
+[ng2:vars]
+# network_group=ng2
+network_group=all

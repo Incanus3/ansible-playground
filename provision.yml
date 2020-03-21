@@ -1,53 +1,89 @@
 ---
-- hosts:  all,!localhost
-  tags:   always
+- hosts: all,!localhost
+  tags:  always
   pre_tasks:
-  - setup:
+  - name: gather host facts
+    setup: gather_subset=network
+    run_once: true
+    delegate_to: "{{ item }}"
+    delegate_facts: true
+    with_items: "{{ groups.all }}"
+    when: not skip_setup | default(False)
 
-- hosts:  all
-  tags:   basic-setup
-  roles: [basic_setup]
+  - name: ensure network_group is defined for all hosts
+    set_fact:
+      network_group: null
+    when: network_group is not defined
 
-- hosts:  db
+  - name: set network group variables
+    set_fact:
+      my_network_group:
+        "{{ hostvars[inventory_hostname]['network_group'] }}"
+      hosts_in_my_group:
+        "{{ hostvars | dict2items
+          | selectattr('value.network_group', 'eq', hostvars[inventory_hostname]['network_group'])
+          | map(attribute = 'key') | list }}"
+      network_group_names:
+        "{{ groups.all | map('extract', hostvars, ['network_group']) | list | unique }}"
+
+
+- hosts: all
+  roles:
+    - { role: basic_setup, tags: basic-setup }
+    - { role: sshd,        tags: sshd        }
+
+- hosts: app,db
+  roles:
+    - { role: pacemaker, tags: pacemaker }
+
   vars:
-    backups_dir: /mnt/backups
+    role_group_names: [app, db]
+    pacemaker_hacluster_password: hacluster
+    pacemaker_cluster_ips:
+      'db-all': { address: '192.168.60.31/24', name: 'dbIP' }
 
-  pre_tasks:
-    - file:
-        path: "{{ backups_dir }}"
+- hosts: db
+  roles:
+    - role: postgres_setup
+      tags: postgres-setup
+      vars:
+        postgresql_allowed_clients: "{{ groups.app }}"
+
+  tasks:
+    - name: create backups directory
+      file:
+        path: "{{ postgresql_backups_dir }}"
         state: directory
         group: postgres
         mode: 0770
       tags: postgres-setup
       become: true
 
-  roles:
-    - role: postgres_setup
-      tags: postgres-setup
-      vars:
-        allowed_clients: "{{ groups.app }}"
-
-  tasks:
     - become: yes
       become_user: postgres
       tags: create-db
       block:
-        - postgresql_user: name=test password=test
-        - postgresql_db:   name=test owner=test
+        - name: create test db user
+          postgresql_user: name=test password=test
+        - name: create test db
+          postgresql_db:   name=test owner=test
+
+  vars:
+    postgresql_backups_dir: /mnt/backups
 
 # - hosts:  app
 #   tags:   nginx-setup
 #   roles: [nginx_setup]
 
-- hosts: app
-  roles:
-    - role: geerlingguy.ruby
-      tags: ruby-setup
-      become: true
-      vars:
-        ruby_install_from_source: true
-        ruby_version: 2.7.0
-        ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
+# - hosts: app
+#   roles:
+#     - role: geerlingguy.ruby
+#       tags: ruby-setup
+#       become: true
+#       vars:
+#         ruby_version: 2.7.0
+#         ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
+#         ruby_install_from_source: true
 
-    - role: db_tester
-      tags: db-tester
+#     - role: db_tester
+#       tags: db-tester

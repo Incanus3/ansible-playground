@@ -1,0 +1,29 @@
+---
+- debug:
+    msg: setting up resource {{ resource }} for cluster {{ cluster.name }}
+
+- name: define cluster IP
+  command: >-
+    pcs resource create {{ resource.name    | default('clusterIP') }} ocf:heartbeat:IPaddr2
+    ip={{                  resource.address | ipaddr('address')    }}
+    cidr_netmask={{        resource.address | ipaddr('prefix')     }}
+    op monitor interval=30s
+  when: resource.type | lower == 'ip'
+
+- block:
+    - name: disable and stop nginx - will be managed by pcm
+      service: name=nginx state=stopped enabled=false
+    - name: define nginx resource
+      command: >-
+        pcs resource create {{ resource.name }} ocf:heartbeat:nginx
+        configfile=/etc/nginx/nginx.conf
+        op monitor interval=20s
+    - name: define colocation constraint
+      command: >-
+        pcs constraint colocation add {{ resource.name }} with {{ item }} INFINITY
+      with_items: "{{ resource.colocation | default([]) }}"
+    - name: define order constraint
+      command: >-
+        pcs constraint order {{ item }} then {{ resource.name }}
+      with_items: "{{ resource.start_after | default([]) }}"
+  when: resource.type | lower == 'nginx'

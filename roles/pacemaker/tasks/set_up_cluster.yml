@@ -1,28 +1,21 @@
 ---
 - set_fact:
     hosts_with_role:
-      "{{ groups[cluster_role_group] }}"
+      "{{ groups[cluster.role_group] }}"
     hosts_in_network_group:
       "{{ hostvars | dict2items
-        | selectattr('value.network_group', 'eq', cluster_network_group)
+        | selectattr('value.network_group', 'eq', cluster.network_group)
         | map(attribute = 'key') | list }}"
 - set_fact:
-    cluster_name:     "{{ cluster_role_group }}-{{ cluster_network_group }}"
     hosts_in_cluster: "{{ hosts_with_role | intersect(hosts_in_network_group) }}"
-
-- debug:
-    msg: |-
-      setting up pacemaker for network group {{ cluster_network_group }} and role {{ cluster_role_group }}
-      hosts with role: {{ hosts_with_role }}
-      hosts in network group: {{ hosts_in_network_group }}
-      hosts in cluster: {{ hosts_in_cluster }}
 
 - block:
     - debug:
         msg: |-
-          running cluster command for hosts {{ hosts_in_cluster }} on host {{ hosts_in_cluster | first }}
-          pcs cluster auth {{ hosts_in_cluster | join(' ') }}
-          pcs cluster setup --name "{{ cluster_name }}" {{ hosts_in_cluster | join(' ') }}
+          setting up pacemaker for network group {{ cluster.network_group }} and role {{ cluster.role_group }}
+          hosts with role: {{ hosts_with_role }}
+          hosts in network group: {{ hosts_in_network_group }}
+          hosts in cluster: {{ hosts_in_cluster }}
 
     - name: check for existing cluster
       command: pcs status
@@ -40,29 +33,33 @@
           changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
 
         - name: initialize cluster
-          command: pcs cluster setup --name "{{ cluster_name }}" {{ hosts_in_cluster | join(' ') }}
+          command: pcs cluster setup --name "{{ cluster.name }}" {{ hosts_in_cluster | join(' ') }}
 
-      when: "'Cluster name: ' + cluster_name not in pcs_status.stdout_lines"
+        - name: start cluster
+          command: pcs cluster start --all
 
-    - block:
-        - name: list cluster resources
-          command: pcs resource show
-          register: pcs_resources
-          changed_when: false
+        - name: disable fencing (for now)
+          command: pcs property set stonith-enabled=false
+          retries: 3
+          delay: 1
+          register: result
+          until: result.rc == 0
 
-        - name: define cluster IP
-          command: >-
-            pcs resource create {{ cluster_ip.name    | default('clusterIP') }} ocf:heartbeat:IPaddr2
-            ip={{                  cluster_ip.address | ipaddr('address')    }}
-            cidr_netmask={{        cluster_ip.address | ipaddr('prefix')     }}
-            op monitor interval=30s
-          when: >-
-            pcs_resources.stdout_lines | select('match', '^\s*' ~ cluster_ip.name ~ '\s')
-              | list | length == 0
+      when: "'Cluster name: ' + cluster.name not in pcs_status.stdout_lines"
 
-      when: cluster_name in pacemaker_cluster_ips
-      vars:
-        cluster_ip: "{{ pacemaker_cluster_ips[cluster_name] }}"
+    - name: get existing resources
+      command: pcs resource show
+      register: pcs_resources
+      changed_when: false
+
+    - set_fact:
+        existing_cluster_resources: "{{ pcs_resources.stdout_lines | map('split') | map('first') | list }}"
+
+    - include_tasks: set_up_resource.yml
+      when: resource.name not in existing_cluster_resources
+      loop: "{{ cluster.resources }}"
+      loop_control:
+        loop_var: resource
 
   when: hosts_in_cluster | length > 1
   delegate_to: "{{ hosts_in_cluster | first }}"

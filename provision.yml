@@ -32,15 +32,26 @@
     - { role: basic_setup, tags: basic-setup }
     - { role: sshd,        tags: sshd        }
 
+
 - hosts: app,db
   roles:
     - { role: pacemaker, tags: pacemaker }
 
   vars:
-    role_group_names: [app, db]
     pacemaker_hacluster_password: hacluster
-    pacemaker_cluster_ips:
-      'db-all': { address: '192.168.60.31/24', name: 'dbIP' }
+    pacemaker_clusters:
+      - name: apps
+        role_group: app
+        network_group: all
+        resources:
+          - { type: 'IP',    name: 'appIP', address: '192.168.60.31/24' }
+          - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
+      - name: dbs
+        role_group: db
+        network_group: all
+        resources:
+          - { type: 'IP', name: 'dbIP',  address: '192.168.60.41/24' }
+
 
 - hosts: db
   roles:
@@ -71,9 +82,50 @@
   vars:
     postgresql_backups_dir: /mnt/backups
 
-# - hosts:  app
-#   tags:   nginx-setup
-#   roles: [nginx_setup]
+
+- hosts:  app
+  tags:   nginx-setup
+  roles: [nginx_setup]
+  become: true
+
+  post_tasks:
+    - name: create deploy user
+      user:
+        name:     "{{ deploy_user }}"
+        password: "{{ deploy_user_pass | password_hash('sha512') }}"
+        shell:    "{{ deploy_user_shell }}"
+        update_password: on_create
+    - name: create directory for test page
+      file:
+        state: directory
+        path: "{{ deploy_dir }}/test-app"
+        group: www-data
+        mode: 0750
+    - name: create apache test page
+      copy:
+        dest: "{{ deploy_dir }}/test-app/index.html"
+        content: |
+          <html>
+            <body>My Test Site - {{ ansible_host }}</body>
+          </html>
+        group: www-data
+        mode: 0640
+    - name: create test page vhost config
+      copy:
+        dest: /etc/nginx/sites-available/test-app
+        content: |
+          server {
+            listen 80;
+            root {{ deploy_dir }}/test-app;
+            index index.html;
+          }
+    - name: enable test page vhost
+      file:
+        state: link
+        src:  /etc/nginx/sites-available/test-app
+        dest: /etc/nginx/sites-enabled/test-app
+      notify: restart nginx
+
 
 # - hosts: app
 #   roles:

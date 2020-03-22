@@ -26,6 +26,7 @@ db3
 [app:vars]
 deploy_user=alto
 deploy_user_pass=alto
+deploy_user_shell=/bin/bash
 deploy_dir=/home/alto/deploy
 
 [all:vars]

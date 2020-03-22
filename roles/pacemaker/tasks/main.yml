@@ -1,47 +1,50 @@
 ---
 - block:
-  - name: install python expect library
-    apt: name=python3-pexpect state=present
+    # TODO: do all this only if hosts belongs to some cluster
+    - name: install python expect library
+      apt: name=python3-pexpect state=present
 
-  - name: install pacemaker packages
-    apt: name=pacemaker,pacemaker-cli-utils,pcs,psmisc state=present
-  - name: allow connections to necessary ports
-    ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts.eth1 | iface_to_subnet_cidr }}
-    with_items:
-      - { proto: 'tcp', port: 2224  }
-      - { proto: 'tcp', port: 3121  }
-      - { proto: 'tcp', port: 21064 }
-      - { proto: 'udp', port: 5405  }
-  - name: enable and start pcs daemon
-    service: name={{ item }} state=started enabled=yes
-    with_items: [corosync, pacemaker, pcsd]
+    - name: install pacemaker packages
+      apt: name=pacemaker,pacemaker-cli-utils,pcs,psmisc state=present
+    - name: allow connections to necessary ports
+      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts.eth1 | iface_to_subnet_cidr }}
+      with_items:
+        - { proto: 'tcp', port: 2224  }
+        - { proto: 'tcp', port: 3121  }
+        - { proto: 'tcp', port: 21064 }
+        - { proto: 'udp', port: 5405  }
+    - name: enable pacemaker services
+      service: name={{ item }} enabled=yes
+      with_items: [corosync, pacemaker, pcsd]
+    - name: start pcs daemon
+      service: name=pcsd state=started
 
-  - name: check if hacluster has set password
-    shell: passwd --status hacluster | cut -f 2 -d ' '
-    register: hacluster_password_status
-    check_mode: no
-    changed_when: false
-  - name: set hacluster password if not set
-    expect:
-      command: passwd hacluster
-      responses:
-        (?i)password: "{{ pacemaker_hacluster_password }}"
-    when: hacluster_password_status.stdout == 'L'
+    - name: check if hacluster has set password
+      shell: passwd --status hacluster | cut -f 2 -d ' '
+      register: hacluster_password_status
+      check_mode: no
+      changed_when: false
+    - name: set hacluster password if not set
+      expect:
+        command: passwd hacluster
+        responses:
+          (?i)password: "{{ pacemaker_hacluster_password }}"
+      when: hacluster_password_status.stdout == 'L'
 
-  - name: check for initial (after-install) cluster
-    command: pcs status
-    register: pcs_status
-    failed_when: false
-    changed_when: false
+    - name: check for initial (after-install) cluster
+      command: pcs status
+      register: pcs_status
+      failed_when: false
+      changed_when: false
 
-  - name: destroy initial cluster
-    command: pcs cluster destroy
-    when: "'Cluster name: debian' in pcs_status.stdout_lines"
+    - name: destroy initial cluster
+      command: pcs cluster destroy
+      when: "'Cluster name: debian' in pcs_status.stdout_lines"
 
-  - include_tasks: set_up_network_group.yml
-    run_once: true
-    loop: "{{ network_group_names }}"
-    loop_control:
-      loop_var: cluster_network_group
+    - include_tasks: set_up_cluster.yml
+      run_once: true
+      loop: "{{ pacemaker_clusters | default([]) }}"
+      loop_control:
+        loop_var: cluster
 
   become: yes

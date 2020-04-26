@@ -1,0 +1,45 @@
+---
+- block:
+    - include_role:
+        name: geerlingguy.glusterfs
+
+    - name: ensure Gluster brick and mount directories exist
+      file: path="{{ item }}" state=directory mode=0775
+      with_items:
+        - "{{ gluster_brick_dir }}"
+        - "{{ gluster_mount_dir }}"
+
+    - name: allow connections to necessary ports
+      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts.eth1 | iface_to_subnet_cidr }}
+      with_items: "{{ general_ports + node_ports }}"
+
+      vars:
+        general_ports:
+          - { proto: 'udp', port: 111   }
+          - { proto: 'tcp', port: 111   }
+          - { proto: 'tcp', port: 2049  }
+          - { proto: 'tcp', port: 24007 }
+        node_ports:
+          "{{ hosts_in_cluster | length | range(start = 49152)
+            | map('to_dict_with', 'port', proto = 'tcp') | list }}"
+
+    - name: configure gluster volume
+      gluster_volume:
+        state: present
+        force: yes
+        host:     "{{ inventory_hostname }}"
+        name:     "{{ gluster_brick_name }}"
+        brick:    "{{ gluster_brick_dir  }}"
+        replicas: "{{ hosts_in_cluster | length    }}"
+        cluster:  "{{ hosts_in_cluster | join(',') }}"
+      run_once: true
+
+    - name: ensure gluster volume is mounted
+      mount:
+        state: mounted
+        name: "{{ gluster_mount_dir }}"
+        src: "{{ inventory_hostname }}:/{{ gluster_brick_name }}"
+        fstype: glusterfs
+        opts: "defaults,_netdev"
+
+  become: yes

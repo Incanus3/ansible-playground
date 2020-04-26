@@ -15,7 +15,6 @@ base_hba_entries = [
 
 base_replication_hba_entries = [
   hba(type = 'local',           database = 'replication'),
-  hba(type = 'local',           database = 'replication'),
   hba(address = '127.0.0.1/32', database = 'replication'),
   hba(address = '::1/128',      database = 'replication')
 ]

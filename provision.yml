@@ -33,26 +33,6 @@
     - { role: sshd,        tags: sshd        }
 
 
-- hosts: app,db
-  roles:
-    - { role: pacemaker, tags: pacemaker }
-
-  vars:
-    pacemaker_hacluster_password: hacluster
-    pacemaker_clusters:
-      - name: apps
-        role_group: app
-        network_group: all
-        resources:
-          - { type: 'IP',    name: 'appIP', address: '192.168.60.31/24' }
-          - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
-      - name: dbs
-        role_group: db
-        network_group: all
-        resources:
-          - { type: 'IP', name: 'dbIP',  address: '192.168.60.41/24' }
-
-
 - hosts: db
   roles:
     - role: postgres_setup
@@ -60,7 +40,14 @@
       vars:
         postgresql_allowed_clients: "{{ groups.app }}"
 
-  tasks:
+  pre_tasks:
+    - set_fact:
+        postgresql_additional_listen_addresses:
+          "{{ postgresql_additional_listen_addresses | default([]) + [postgresql_cluster_ip | ipaddr('address')] }}"
+      when: postgresql_cluster_ip is defined
+      tags: postgres-setup
+
+  post_tasks:
     - name: create backups directory
       file:
         path: "{{ postgresql_backups_dir }}"
@@ -78,9 +65,6 @@
           postgresql_user: name=test password=test
         - name: create test db
           postgresql_db:   name=test owner=test
-
-  vars:
-    postgresql_backups_dir: /mnt/backups
 
 
 - hosts:  app

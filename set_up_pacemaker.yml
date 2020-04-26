@@ -1,0 +1,71 @@
+---
+- hosts: all,!localhost
+  tags:  always
+  pre_tasks:
+  - name: gather host facts
+    setup: gather_subset=network
+    run_once: true
+    delegate_to: "{{ item }}"
+    delegate_facts: true
+    with_items: "{{ groups.all }}"
+    when: not skip_setup | default(False)
+
+  - name: ensure network_group is defined for all hosts
+    set_fact:
+      network_group: null
+    when: network_group is not defined
+
+  - name: set network group variables
+    set_fact:
+      my_network_group:
+        "{{ hostvars[inventory_hostname]['network_group'] }}"
+      hosts_in_my_group:
+        "{{ hostvars | dict2items
+          | selectattr('value.network_group', 'eq', hostvars[inventory_hostname]['network_group'])
+          | map(attribute = 'key') | list }}"
+      network_group_names:
+        "{{ groups.all | map('extract', hostvars, ['network_group']) | list | unique }}"
+
+
+- hosts: app,db
+  roles:
+    - { role: pacemaker, tags: pacemaker }
+
+  vars:
+    pacemaker_clusters:
+      - name: apps
+        role_group: app
+        network_group: all
+        resources:
+          - { type: 'IP',    name: 'appIP', address: '192.168.60.10/24' }
+          - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
+
+      - name: dbs
+        role_group: db
+        network_group: all
+        fencing: yes
+        resources:
+          - type: 'IP'
+            name: 'postgres-master-ip'
+            address: "{{ postgresql_cluster_ip }}"
+          - type: 'postgres-ha'
+            name: 'postgres-ha'
+            haIP: "{{ postgresql_cluster_ip | ipaddr('address') }}"
+        constraints:
+          - type: 'colocation'
+            what: 'postgres-master-ip'
+            with: 'postgres-ha'
+            with_role: 'master'
+          - type: 'order'
+            first_action:   'promote'
+            first_resource: 'postgres-ha'
+            then_action:    'start'
+            then_resource:  'postgres-master-ip'
+            kind: 'mandatory'
+            symmetrical: false
+          - type: 'order'
+            first_action:   'demote'
+            first_resource: 'postgres-ha'
+            then_action:    'stop'
+            then_resource:  'postgres-master-ip'
+            symmetrical: false

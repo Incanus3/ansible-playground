@@ -1,5 +1,7 @@
 127.0.0.1 localhost
 
+192.168.60.1 hypervizor
+
 192.168.60.11 app1.test app1
 192.168.60.12 app2.test app2
 

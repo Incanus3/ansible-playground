@@ -2,50 +2,76 @@
 - become: yes
 
   block:
-  - name: listen on all addresses
+  - name: set postgresql options
     set_fact:
       postgresql_global_config_options:
-        "{{ postgresql_global_config_options + [{ 'option': 'listen_addresses', 'value': '*' }] }}"
-    when: postgresql_allowed_clients | length > 0
-  - name: set up WAL archiving
-    set_fact:
-      postgresql_global_config_options:
-        "{{ postgresql_global_config_options + replication_master_options }}"
+        "{{ postgresql_global_config_options + common_options + replication_master_options + replication_slave_options }}"
       postgresql_hba_entries:
         "{{ postgresql_hba_entries + replication_hba_entries }}"
       postgresql_users:
-        - name: replicator
-          password: replicator
+        - name: "{{ postgresql_replication_user }}"
+          password: "{{ postgresql_replication_password }}"
           role_attr_flags: REPLICATION
-    # when: postgresql_replication_role == 'master'
   - import_role: name=geerlingguy.postgresql
   - name: allow connection from clients
     ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
-    with_items: "{{ allowed_clients_eth1_ipv4 + replication_clients_eth1_ipv4 }}"
+    with_items: "{{ allowed_clients_ipv4 + replication_clients_ipv4 }}"
 
   vars:
-    allowed_clients_eth1_ipv4:
-      "{{ postgresql_allowed_clients | map('extract', hostvars, ['ansible_facts', 'eth1', 'ipv4']) | list }}"
-    postgresql_hba_entries:
-      "{{ allowed_clients_eth1_ipv4 | map('ipv4_to_hba') | list | add_base_hba_entries }}"
+    postgresql_iface_address:
+      "{{ hostvars[inventory_hostname]['ansible_facts'][postgresql_iface]['ipv4']['address'] }}"
+    postgresql_listen_addresses:
+      "{{ (['127.0.0.1', postgresql_iface_address] + postgresql_additional_listen_addresses) | unique }}"
 
-    replication_clients:
-      "{{ groups.db | difference([inventory_hostname]) }}"
-    replication_clients_eth1_ipv4:
-      "{{ replication_clients | map('extract', hostvars, ['ansible_facts', 'eth1', 'ipv4']) | list }}"
-    replication_hba_entries:
-      "{{ replication_clients_eth1_ipv4 | map('ipv4_to_hba', database = 'replication') | list
+    allowed_clients_ipv4:
+      "{{ postgresql_allowed_clients
+        | difference([inventory_hostname])
+        | map('extract', hostvars, ['ansible_facts', postgresql_iface, 'ipv4'])
+        | list }}"
+    postgresql_hba_entries:
+      "{{ allowed_clients_ipv4
+        | map('ipv4_to_hba')
+        | list
+        | add_base_hba_entries }}"
+
+    replication_clients_ipv4:
+      "{{ postgresql_replication_clients
+        | difference([inventory_hostname])
+        | map('extract', hostvars, ['ansible_facts', postgresql_iface, 'ipv4'])
+        | list }}"
+    accept_replication_hba_entries:
+      "{{ replication_clients_ipv4
+        | map('ipv4_to_hba', database = 'replication', user = postgresql_replication_user)
+        | list
         | add_base_replication_hba_entries }}"
+    reject_self_replication_hba_entry:
+      "{{ ansible_facts[postgresql_iface]['ipv4']
+        | ipv4_to_hba(database = 'replication', user = postgresql_replication_user, auth_method = 'reject') }}"
+    replication_hba_entries:
+      "{{ accept_replication_hba_entries + [reject_self_replication_hba_entry] }}"
 
     postgresql_python_library: python3-psycopg2
+
+    common_options:
+      - option: 'listen_addresses'
+        value: "{{ postgresql_listen_addresses | join(',') }}"
+      - option: 'logging_collector'
+        value: 'off'
+      - option: 'log_timezone'
+        value: 'Europe/Prague'
 
     replication_master_options:
       - option: 'wal_level'
         value: 'replica'
       - option: 'archive_mode'
+        value: 'off'
+      # - option: 'archive_timeout'
+      #   value:  "{{ postgresql_wal_timeout }}"
+      # - option: 'archive_command'
+      #   value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+
+    replication_slave_options:
+      - option: 'hot_standby'
         value: 'on'
-      - option: 'archive_timeout'
-        value: 900 # 15 min
-      - option: 'archive_command'
-        # value: 'test ! -f {{ backups_dir }}/%f && cp %p {{ backups_dir }}/%f'
-        value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+      - option: 'hot_standby_feedback'
+        value: 'on'

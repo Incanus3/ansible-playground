@@ -1,0 +1,9 @@
+postgresql_port: 5432
+postgresql_iface: eth1
+postgresql_version: 10
+postgresql_cluster: main
+postgresql_backups_dir: /mnt/backups
+postgresql_wal_timeout: 180 # 3 mins
+postgresql_cluster_ip: '192.168.60.20/24'
+postgresql_replication_user:     "replicator"
+postgresql_replication_password: "replicator"

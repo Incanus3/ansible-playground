@@ -22,9 +22,9 @@
       apt: name=python3-pexpect state=present
 
     - name: install pacemaker packages
-      apt: name=pacemaker,pacemaker-cli-utils,pcs,psmisc state=present
+      apt: name=pacemaker,pacemaker-cli-utils,fence-agents,pcs,resource-agents-paf state=present
     - name: allow connections to necessary ports
-      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts.eth1 | iface_to_subnet_cidr }}
+      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts[postgresql_iface] | iface_to_subnet_cidr }}
       with_items:
         - { proto: 'tcp', port: 2224  }
         - { proto: 'tcp', port: 3121  }
@@ -48,66 +48,150 @@
           (?i)password: "{{ pacemaker_hacluster_password }}"
       when: hacluster_password_status.stdout == 'L'
 
-    - name: check for initial (after-install) cluster
-      command: pcs status
-      register: pcs_status_initial
+    - name: check if pcs command is available
+      shell: which pcs
+      register: which_pcs
       check_mode: no
       failed_when: false
       changed_when: false
 
-    - name: destroy initial cluster
-      command: pcs cluster destroy
-      when: "'Cluster name: debian' in pcs_status_initial.stdout_lines"
-
-    - debug: var=hosts_in_cluster
-
     - block:
-        - name: check for existing cluster
+        - name: check for initial (after-install) cluster
           command: pcs status
-          register: pcs_status
+          register: pcs_status_initial
           check_mode: no
           failed_when: false
           changed_when: false
 
+        - name: destroy initial cluster
+          command: pcs cluster destroy
+          when: "'Cluster name: debian' in pcs_status_initial.stdout_lines"
+
         - block:
-            - name: authenticate all nodes in cluster with each other
-              command: >-
-                pcs cluster auth {{ hosts_in_cluster | join(' ') }}
-                -u "{{ pacemaker_hacluster_username | default('hacluster') }}"
-                -p "{{ pacemaker_hacluster_password }}"
-              register: result
-              changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
+            - name: check for existing cluster
+              command: pcs status
+              register: pcs_status
+              check_mode: no
+              failed_when: false
+              changed_when: false
 
-            - name: initialize cluster
-              command: pcs cluster setup --name "{{ cluster.name }}" {{ hosts_in_cluster | join(' ') }}
+            - block:
+                - name: authenticate all nodes in cluster with each other
+                  command: >-
+                    pcs cluster auth {{ hosts_in_cluster | join(' ') }}
+                    -u "{{ pacemaker_hacluster_username }}"
+                    -p "{{ pacemaker_hacluster_password }}"
+                  register: result
+                  changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
 
-            - name: start cluster
-              command: pcs cluster start --all
+                # TODO: support alternative host addresses to fall back on other network
+                - name: initialize cluster
+                  command: pcs cluster setup --name "{{ cluster.name }}" {{ hosts_in_cluster | join(' ') }}
 
-            - name: disable fencing (for now)
-              command: pcs property set stonith-enabled=false
-              retries: 3
-              delay: 1
-              register: result
-              until: result.rc == 0
+                - name: start cluster
+                  command: pcs cluster start --all
 
-          when: "'Cluster name: ' + cluster.name not in pcs_status.stdout_lines"
+                - name: set default resource migration threshold
+                  command: pcs resource defaults migration-threshold={{ pacemaker_default_migration_threshold }}
+                  retries: 3
+                  delay: 1
+                  register: result
+                  until: result.rc == 0
 
-        - name: get existing resources
-          command: pcs resource show
-          register: pcs_resources
+                - name: set default resource stickiness
+                  command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}
+
+                - name: disable fencing
+                  command: pcs property set stonith-enabled=false
+                  when: pacemaker_stonith_disabled
+
+              when: "'Cluster name: ' + cluster.name not in pcs_status.stdout_lines"
+
+          when: inventory_hostname == hosts_in_cluster[0]
+
+        - block:
+            - name: get existing fences
+              shell: pcs stonith show
+              register: pcs_fences
+
+            - name: get existing resources
+              shell: pcs resource show --full | grep -P '^ (Master|Resource):'
+              register: pcs_resources
+
+            - name: get existing constraints
+              shell: pcs constraint --full | grep -Po '(?<=\(id:).*(?=\))'
+              register: pcs_constraints
+
           check_mode: no
+          failed_when: false
           changed_when: false
 
-        - set_fact:
-            existing_cluster_resources: "{{ pcs_resources.stdout_lines | map('split') | map('first') | list }}"
+        - name: set variables for existing entities
+          set_fact:
+            existing_cluster_fences:      "{{ pcs_fences.stdout_lines    | map('split') | map('first')  | list }}"
+            existing_cluster_resources:   "{{ pcs_resources.stdout_lines | map('split') | map('nth', 2) | list }}"
+            existing_cluster_constraints: "{{ pcs_constraints.stdout_lines }}"
 
-        - include_tasks: set_up_resource.yml
-          when: resource.name not in existing_cluster_resources
-          loop: "{{ cluster.resources }}"
-          loop_control:
-            loop_var: resource
+        - block:
+            - name: set helper variables for fencing
+              set_fact:
+                cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
+                additional_constraints: []
+              when: inventory_hostname == hosts_in_cluster[0]
 
-      when: inventory_hostname == hosts_in_cluster[0]
+            - name: create shadow cluster configuration
+              command: pcs cluster cib {{ cib_file_path }}
+              when: inventory_hostname == hosts_in_cluster[0]
+              changed_when: false
+
+            - name: save starting cluster configuration
+              copy: src="{{ cib_file_path }}" dest="{{ cib_start_path }}" remote_src=true
+              when: inventory_hostname == hosts_in_cluster[0]
+              changed_when: false
+
+            - include_tasks: set_up_fence.yml
+              when: inventory_hostname == hosts_in_cluster[0]
+              loop: "{{ cluster_with_fencing.fencing }}"
+              loop_control:
+                loop_var: fence
+
+            - include_tasks: set_up_resource.yml
+              when: resource.name not in existing_cluster_resources
+              loop: "{{ cluster.resources }}"
+              loop_control:
+                loop_var: resource
+
+            - include_tasks: set_up_constraint.yml
+              when: inventory_hostname == hosts_in_cluster[0]
+              loop: "{{ cluster.constraints + additional_constraints }}"
+              loop_control:
+                loop_var: constraint
+
+            - name: check if there are changes to apply
+              shell: "crm_diff --original {{ cib_start_path }} --new {{ cib_file_path }} > /dev/null"
+              when: inventory_hostname == hosts_in_cluster[0]
+              register: crm_diff
+              failed_when: crm_diff.rc > 1
+              changed_when: false
+
+            - name: commit shadow cluster configuration
+              command: pcs cluster cib-push {{ cib_file_path }}
+              when: inventory_hostname == hosts_in_cluster[0] and crm_diff.rc == 1
+
+          always:
+            - name: remove shadow config
+              file: state=absent path="{{ cib_file_path  }}"
+              when: inventory_hostname == hosts_in_cluster[0]
+              changed_when: false
+            - name: remove starting config
+              file: state=absent path="{{ cib_start_path }}"
+              when: inventory_hostname == hosts_in_cluster[0]
+              changed_when: false
+
+          vars:
+            cib_file_path:  /tmp/ansible.xml
+            cib_start_path: /tmp/ansible-start.xml
+
+      when: which_pcs.rc == 0
 
   when: hosts_in_cluster | length > 1 and inventory_hostname in hosts_in_cluster

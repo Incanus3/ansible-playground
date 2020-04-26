@@ -1,0 +1,56 @@
+- block:
+    - name: set location constraint variables
+      set_fact:
+        constraint_id:
+          "{{ constraint.id
+            | default(constraint.resource ~ '-' ~ constraint.kind | default('prefers') ~ '-' ~ constraint.host) }}"
+        constraint_score:
+          "{{ constraint.score
+            | default({ 'prefers': 'INFINITY', 'avoids': '-INFINITY' }.get(constraint.kind | default('prefers'))) }}"
+
+    - name: define location constraint
+      command: >-
+        pcs -f {{ cib_file_path }} constraint location add {{ constraint_id }}
+        {{ constraint.resource }} {{ constraint.host }} {{ constraint_score }}
+      when: constraint_id not in existing_cluster_constraints
+
+  when: constraint.type == 'location'
+
+- block:
+    - name: set colocation constraint variables
+      set_fact:
+        constraint_id:
+          "{{ constraint.id
+            | default(constraint.what ~ constraint.what_role | default('') | prepend_if_not_empty('-') ~ '-with-' ~
+                      constraint.with ~ constraint.with_role | default('') | prepend_if_not_empty('-')) }}"
+
+    - name: define colocation constraint
+      command: >-
+        pcs -f {{ cib_file_path }} constraint colocation
+        add {{  constraint.what_role | default('started') }} {{ constraint.what }}
+        with {{ constraint.with_role | default('started') }} {{ constraint.with }}
+        {{ constraint.score | default('INFINITY') }}
+        id={{ constraint_id }}
+      when: constraint_id not in existing_cluster_constraints
+
+  when: constraint.type == 'colocation'
+
+- block:
+    - name: set order constraint variables
+      set_fact:
+        constraint_id:
+          "{{ constraint.id
+            | default(constraint.first_action ~ '-' ~ constraint.first_resource ~ '-then-' ~
+                      constraint.then_action  ~ '-' ~ constraint.then_resource) }}"
+
+    - name: define order constraint
+      command: >-
+        pcs -f {{ cib_file_path }} constraint order
+        {{ constraint.first_action }} {{ constraint.first_resource }} then
+        {{ constraint.then_action }} {{  constraint.then_resource }}
+        id={{ constraint_id }}
+        kind={{ constraint.kind | default('mandatory') | capitalize }}
+        symmetrical={{ constraint.symmetrical | default(true) | string | lower }}
+      when: constraint_id not in existing_cluster_constraints
+
+  when: constraint.type == 'order'

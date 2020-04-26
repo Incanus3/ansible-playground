@@ -3,7 +3,7 @@
   - name: update apt cache
     apt: update_cache=yes cache_valid_time=3600
   - name: install base packages
-    apt: name=ack,tree,htop,net-tools state=present
+    apt: name=ack,tree,htop,net-tools,psmisc state=present
 
   - name: uninstall other ntp implementations
     apt:     name=ntp,openntpd state=absent
@@ -15,7 +15,73 @@
   - name: enable firewall
     ufw: state=enabled
 
+  - name: set /etc/hostname
+    copy: dest=/etc/hostname content="{{ inventory_hostname }}\n"
+
   - name: populate /etc/hosts
     copy: src=etc/hosts dest=/etc/hosts
+
+  - name: set /etc/mailname
+    copy: dest=/etc/mailname content="{{ ansible_host }}\n"
+    when: not ansible_host | ipaddr
+
+  - name: set timezone
+    timezone:
+      name: "{{ timezone }}"
+
+  - name: improve bash history
+    blockinfile:
+      dest: /etc/bash.bashrc
+      marker: "# {mark} history options"
+      insertbefore: "If not running interactively, don't do anything"
+      block: |
+        HISTCONTROL=ignoreboth
+        HISTFILESIZE=100000
+        HISTSIZE=100000
+        HISTTIMEFORMAT="%d/%m/%y %T "
+
+  - name: enable bash completion
+    blockinfile:
+      dest: /etc/bash.bashrc
+      marker: "# {mark} bash completion"
+      block: |
+        # enable bash completion in interactive shells
+        if ! shopt -oq posix; then
+          if [ -f /usr/share/bash-completion/bash_completion ]; then
+            . /usr/share/bash-completion/bash_completion
+          elif [ -f /etc/bash_completion ]; then
+            . /etc/bash_completion
+          fi
+        fi
+
+  - name: force color prompt for root user
+    lineinfile:
+      path: /root/.bashrc
+      line: force_color_prompt=yes
+      regexp: '^#?force_color_prompt'
+
+  - name: use red prompt for root user
+    lineinfile:
+      path: /root/.bashrc
+      line: "    PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;31m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
+      regexp: "^\\s*PS1='\\$\\{debian_chroot:\\+\\(\\$debian_chroot\\)\\}\\\\\\[\\\\033\\[.*\\\\\\]\\\\u@\\\\h\\\\\\[\\\\033\\[00m\\\\\\]:\\\\\\[\\\\033\\[.*\\\\\\]\\\\w\\\\\\[\\\\033\\[00m\\\\\\]\\\\\\$ '"
+
+  - name: set up available locales
+    locale_gen: name="{{ locale }}"
+
+  - name: set up environment
+    lineinfile:
+      dest:   /etc/environment
+      line:   '{{ item.option }}="{{ item.value }}"'
+      regexp: "^{{ item.option }}="
+    with_items:
+      - { option: 'EDITOR', value: 'vim'          }
+      - { option: 'LC_ALL', value: "{{ locale }}" }
+      - { option: 'LANG',   value: "{{ locale }}" }
+
+  - name: configure vim
+    copy: src=vimrc dest=/etc/vim/vimrc
+  - name: configure tmux
+    copy: src=tmux.conf dest=/etc/tmux.conf
 
   become: yes

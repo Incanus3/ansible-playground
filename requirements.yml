@@ -1,3 +1,4 @@
 roles:
+  # - src: geerlingguy.glusterfs
   - src: geerlingguy.postgresql
   - src: geerlingguy.ruby

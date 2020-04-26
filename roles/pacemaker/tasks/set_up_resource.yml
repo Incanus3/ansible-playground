@@ -1,29 +1,91 @@
 ---
+# NOTA BENE: all pcs commands need to be run on only one host, use
+# when: inventory_hostname == hosts_in_cluster[0]
+# to achieve that
+
 - debug:
     msg: setting up resource {{ resource }} for cluster {{ cluster.name }}
+  when: inventory_hostname == hosts_in_cluster[0]
 
-- name: define cluster IP
+- name: define IP resource
   command: >-
-    pcs resource create {{ resource.name    | default('clusterIP') }} ocf:heartbeat:IPaddr2
+    pcs -f {{ cib_file_path }} resource create {{ resource.name    | default('clusterIP') }} ocf:heartbeat:IPaddr2
     ip={{                  resource.address | ipaddr('address')    }}
     cidr_netmask={{        resource.address | ipaddr('prefix')     }}
     op monitor interval=30s
-  when: resource.type | lower == 'ip'
+  when: resource.type | lower == 'ip' and inventory_hostname == hosts_in_cluster[0]
 
 - block:
     - name: disable and stop nginx - will be managed by pcm
       service: name=nginx state=stopped enabled=false
+
     - name: define nginx resource
       command: >-
-        pcs resource create {{ resource.name }} ocf:heartbeat:nginx
+        pcs -f {{ cib_file_path }} resource create {{ resource.name }} ocf:heartbeat:nginx
         configfile=/etc/nginx/nginx.conf
         op monitor interval=20s
-    - name: define colocation constraint
-      command: >-
-        pcs constraint colocation add {{ resource.name }} with {{ item }} INFINITY
-      with_items: "{{ resource.colocation | default([]) }}"
-    - name: define order constraint
-      command: >-
-        pcs constraint order {{ item }} then {{ resource.name }}
-      with_items: "{{ resource.start_after | default([]) }}"
+      when: inventory_hostname == hosts_in_cluster[0]
   when: resource.type | lower == 'nginx'
+
+- block:
+    - name: ensure pg_stat_tmp run directory
+      lineinfile:
+        path: /etc/tmpfiles.d/postgresql.conf
+        line: d {{ postgresql_stat_tmp_dir }} 0700 {{ postgresql_user }} {{ postgresql_group }} - -
+        create: true
+
+    - name: create recovery.conf template
+      copy:
+        dest: "{{ postgresql_recovery_template }}"
+        content: |
+          standby_mode = on
+          primary_conninfo = '{{ conninfo | trim }}'
+          recovery_target_timeline = 'latest'
+        owner: postgres
+        group: postgres
+        mode: 0640
+      vars:
+        conninfo: >
+          host=''{{ resource.haIP }}''
+          user={{ postgresql_replication_user }}
+          password=''{{ postgresql_replication_password }}''
+          application_name={{ inventory_hostname }}
+
+    - name: disable and stop postgres - will be managed by pcm
+      service: name=postgresql state=stopped enabled=false
+
+    - name: prevent postgres from being stared by systemd
+      lineinfile:
+        path: "{{ postgresql_conf_dir }}/start.conf"
+        line: disabled
+        regex: '^(auto|manual|disabled)'
+
+    - name: enable ipv4 non-local binding
+      sysctl:
+        name: net.ipv4.ip_nonlocal_bind
+        value: '1'
+        sysctl_file: /etc/sysctl.d/99-custom.conf
+
+    - name: define postgres-ha promotable resource
+      command: >-
+        pcs -f {{ cib_file_path }} resource create {{ resource.name ~ '-node' }} ocf:heartbeat:pgsqlms
+        pghost="{{ postgresql_run_dir }}"
+        bindir="{{ postgresql_bin_dir }}"
+        pgdata="{{ postgresql_conf_dir }}"
+        datadir="{{ postgresql_data_dir }}"
+        recovery_template="{{ postgresql_recovery_template }}"
+        op start timeout=60s
+        op stop timeout=60s
+        op promote timeout=30s
+        op demote timeout=120s
+        op monitor interval=15s timeout=10s role="Master"
+        op monitor interval=16s timeout=10s role="Slave"
+        op notify timeout=60s
+      when: inventory_hostname == hosts_in_cluster[0]
+
+    - name: define postgres-ha master resource
+      command: >-
+        pcs -f {{ cib_file_path }} resource master {{ resource.name }} {{ resource.name ~ '-node' }} master-max=1 notify=true
+      when: inventory_hostname == hosts_in_cluster[0]
+
+  when: resource.type | lower == 'postgres-ha'

@@ -33,34 +33,28 @@
     - { role: sshd,        tags: sshd        }
 
 
-- hosts: app,db
-  roles:
-    - { role: pacemaker, tags: pacemaker }
-
-  vars:
-    pacemaker_hacluster_password: hacluster
-    pacemaker_clusters:
-      - name: apps
-        role_group: app
-        network_group: all
-        resources:
-          - { type: 'IP',    name: 'appIP', address: '192.168.60.31/24' }
-          - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
-      - name: dbs
-        role_group: db
-        network_group: all
-        resources:
-          - { type: 'IP', name: 'dbIP',  address: '192.168.60.41/24' }
-
-
 - hosts: db
   roles:
     - role: postgres_setup
       tags: postgres-setup
       vars:
+        # FIXME: when this is set to stopped, users and databases aren't created
+        # - we could stop and disable the service in the pacemaker role,
+        #   but that would break when the postgres-setup role was run again
+        # postgresql_service_state: started
+
+        # also, restart postgresql handler ignores this variable
+        postgresql_service_state: stopped
+        postgresql_service_enabled: false
         postgresql_allowed_clients: "{{ groups.app }}"
 
-  tasks:
+  pre_tasks:
+    - set_fact:
+        postgresql_additional_listen_addresses:
+          "{{ postgresql_additional_listen_addresses | default([]) + [postgresql_master_ip | ipaddr('address')] }}"
+      when: postgresql_master_ip is defined
+      tags: postgres-setup
+
     - name: create backups directory
       file:
         path: "{{ postgresql_backups_dir }}"
@@ -70,6 +64,7 @@
       tags: postgres-setup
       become: true
 
+  post_tasks:
     - become: yes
       become_user: postgres
       tags: create-db
@@ -78,9 +73,6 @@
           postgresql_user: name=test password=test
         - name: create test db
           postgresql_db:   name=test owner=test
-
-  vars:
-    postgresql_backups_dir: /mnt/backups
 
 
 - hosts:  app

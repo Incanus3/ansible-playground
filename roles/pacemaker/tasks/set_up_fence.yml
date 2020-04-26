@@ -1,0 +1,23 @@
+---
+- name: set fence device variables
+  set_fact:
+    fence_name: "{{ fence.name | default('fence-' ~ fence.host) }}"
+    defaults:   "{{ cluster_with_fencing.fencing_defaults }}"
+
+- name: define fence device
+  command: >-
+    pcs -f {{ cib_file_path }} stonith create {{ fence_name }} {{ fence.agent | default(defaults.agent) }}
+    pcmk_host_check="static-list"
+    pcmk_host_list="{{ fence.host }}"
+    port="{{           fence.port | default(fence.port_prefix | default(defaults.port_prefix) ~ fence.host) }}"
+    ipaddr="{{         fence.hypervizor_host | default(defaults.hypervizor_host) }}"
+    login="{{          fence.hypervizor_user | default(defaults.hypervizor_user) }}"
+    identity_file="{{  fence.identity_file   | default(defaults.identity_file) | default('$HOME/.ssh/id_rsa') }}"
+    power_wait="{{     fence.power_wait      | default(defaults.power_wait)    | default(10) }}"
+  when: fence_name not in existing_cluster_fences
+
+- name: add fence device location constraint
+  set_fact:
+    additional_constraints:
+      "{{ additional_constraints
+        + [{ 'type': 'location', 'resource': fence_name, 'kind': 'avoids', 'host': fence.host }] }}"

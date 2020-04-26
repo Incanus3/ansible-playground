@@ -1,0 +1,118 @@
+---
+- hosts: "{{ replication_slave }}"
+  become: yes
+  become_user: postgres
+
+  tasks:
+    - name: create .ssh directory
+      file:
+        state: directory
+        path: ~/.ssh
+        mode: 0700
+
+    - name: create slave ssh keypair
+      openssh_keypair:
+        type: ed25519
+        path: ~/.ssh/id_ed25519
+      register: slave_key
+
+    - name: add slave pubkey to master's authorized keys
+      authorized_key:
+        user: postgres
+        key: "{{ slave_key.public_key }}"
+      delegate_to: "{{ replication_master }}"
+
+    - name: get master known_hosts line
+      command: ssh-keyscan -H "{{ replication_master }}"
+      register: master_known_hosts_line
+      changed_when: false
+
+    - name: add master to slave's known_hosts
+      known_hosts:
+        host: "{{ replication_master }}"
+        key:  "{{ master_known_hosts_line.stdout }}"
+
+- hosts: "{{ replication_master }}"
+  become: yes
+  become_user: postgres
+  gather_facts: yes
+
+  tasks:
+    - name: set base_backup_name variable
+      set_fact:
+        base_backup_name:
+          "ans-base-backup-for-{{ replication_slave }}-{{ ansible_facts.date_time.iso8601_basic_short }}"
+
+    - name: create base backup
+      command: pg_basebackup -U {{ postgresql_replication_user }} -D {{ postgresql_backups_dir }}/{{ base_backup_name }} -X stream -Ft -z
+        creates="{{ postgresql_backups_dir }}/{{ base_backup_name }}"
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_password }}"
+
+    - name: transfer base backup to slave
+      synchronize:
+        src:  "{{ base_backup_path }}"
+        dest: "/tmp/"
+        mode: pull
+        private_key: ~/.ssh/id_ed25519
+        set_remote_user: no
+        rsync_path: 'rsync'
+      delegate_to: "{{ replication_slave }}"
+
+    # TODO: add option to temporarily add master ip - this is needed for pacemaker setup
+
+  vars:
+    base_backup_path: "{{ postgresql_backups_dir }}/{{ base_backup_name }}"
+
+- hosts: "{{ replication_slave }}"
+  become: yes
+
+  tasks:
+    - name: stop postgres on slave
+      service: name=postgresql state=stopped
+
+    - name: delete data dir on slave
+      file: path={{ postgresql_data_dir }} state=absent
+
+    - name: create data dir on slave
+      file: path={{ postgresql_data_dir }} state=directory owner=postgres group=postgres mode=0700
+
+    - name: unpack base backup to data dir
+      unarchive:
+        src:  "/tmp/{{ master_base_backup_name }}/base.tar.gz"
+        dest: "{{ postgresql_data_dir }}"
+        remote_src: true
+
+    - name: unpack WAL backup to data dir
+      unarchive:
+        src:  "/tmp/{{ master_base_backup_name }}/pg_wal.tar.gz"
+        dest: "{{ postgresql_data_dir }}/pg_wal"
+        remote_src: true
+
+    - name: create recovery.conf
+      copy:
+        dest: "{{ postgresql_data_dir }}/recovery.conf"
+        content: |
+          standby_mode = 'on'
+          # restore_command = '{{ restore_command | trim }}'
+          primary_conninfo = '{{ conninfo | trim }}'
+          recovery_target_timeline = 'latest'
+
+    - name: start postgres on slave
+      service: name=postgresql state=started
+
+  vars:
+    postgresql_data_dir:     "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
+    master_backups_dir:      "{{ hostvars[replication_master]['postgresql_backups_dir'] }}"
+    master_base_backup_name: "{{ hostvars[replication_master]['base_backup_name'] }}"
+
+    restore_command: >
+      ssh {{ replication_master }} "test -f {{ master_backups_dir }}/%f.gz" &&
+      ssh {{ replication_master }} "cat {{ master_backups_dir }}/%f.gz" | gunzip > %p
+
+    conninfo: >
+      host=''{{ replication_cluster_ip | default(replication_master) }}''
+      port={{ hostvars[replication_master]['postgresql_port'] }}
+      user={{ hostvars[replication_master]['postgresql_replication_user'] }}
+      password=''{{ hostvars[replication_master]['postgresql_replication_password'] }}''
+      application_name={{ replication_slave }}

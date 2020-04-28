@@ -39,6 +39,7 @@
         dest: "{{ postgresql_recovery_template }}"
         content: |
           standby_mode = on
+          restore_command = '{{ restore_command | trim }}'
           primary_conninfo = '{{ conninfo | trim }}'
           recovery_target_timeline = 'latest'
         owner: postgres
@@ -50,6 +51,7 @@
           user={{ postgresql_replication_user }}
           password=''{{ postgresql_replication_password }}''
           application_name={{ inventory_hostname }}
+        restore_command: "gunzip < {{ postgresql_backups_dir }}/%f.gz > %p"
 
     - name: disable and stop postgres - will be managed by pcm
       service: name=postgresql state=stopped enabled=false

@@ -95,12 +95,15 @@
                 - name: start cluster
                   command: pcs cluster start --all
 
-                - name: set default resource migration threshold
-                  command: pcs resource defaults migration-threshold={{ pacemaker_default_migration_threshold }}
+                - name: set cluster recheck interval (default is too long)
+                  command: pcs property set cluster-recheck-interval={{ pacemaker_cluster_recheck_interval }}
                   retries: 3
                   delay: 1
                   register: result
                   until: ansible_check_mode or result.rc == 0
+
+                - name: set default resource migration threshold
+                  command: pcs resource defaults migration-threshold={{ pacemaker_default_migration_threshold }}
 
                 - name: set default resource stickiness
                   command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}

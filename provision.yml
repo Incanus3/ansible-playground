@@ -35,6 +35,18 @@
 
 - hosts: db
   roles:
+    # TODO: move this to a separate playbook
+    - role: glusterfs
+      tags: glusterfs
+      vars:
+        gluster_brick_name: backups
+        gluster_brick_dir: /srv/gluster/brick
+        gluster_mount_dir: "{{ postgresql_backups_dir }}"
+        hosts_in_cluster: "{{ groups.db }}"
+
+
+- hosts: db
+  roles:
     - role: postgres_setup
       tags: postgres-setup
       vars:
@@ -50,9 +62,10 @@
   post_tasks:
     - name: create backups directory
       file:
-        path: "{{ postgresql_backups_dir }}"
         state: directory
-        group: postgres
+        path:  "{{ postgresql_backups_dir }}"
+        owner: "{{ postgresql_user  }}"
+        group: "{{ postgresql_group }}"
         mode: 0770
       tags: postgres-setup
       become: true
@@ -111,15 +124,15 @@
       notify: restart nginx
 
 
-# - hosts: app
-#   roles:
-#     - role: geerlingguy.ruby
-#       tags: ruby-setup
-#       become: true
-#       vars:
-#         ruby_version: 2.7.0
-#         ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
-#         ruby_install_from_source: true
+- hosts: app
+  roles:
+    - role: geerlingguy.ruby
+      tags: ruby-setup
+      become: true
+      vars:
+        ruby_version: 2.7.1
+        ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
+        ruby_install_from_source: true
 
-#     - role: db_tester
-#       tags: db-tester
+    - role: db_tester
+      tags: db-tester

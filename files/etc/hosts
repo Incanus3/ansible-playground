@@ -1,10 +1,12 @@
-127.0.0.1 localhost
+127.0.0.1     localhost
 
-192.168.60.1 hypervizor
+192.168.60.1  hypervizor.test hypervizor
 
-192.168.60.11 app1.test app1
-192.168.60.12 app2.test app2
+192.168.60.10 app-master.test app-master
+192.168.60.11 app1.test       app1
+192.168.60.12 app2.test       app2
 
-192.168.60.21 db1.test  db1
-192.168.60.22 db2.test  db2
-192.168.60.23 db3.test  db3
+192.168.60.20 db-master.test  db-master
+192.168.60.21 db1.test        db1
+192.168.60.22 db2.test        db2
+192.168.60.23 db3.test        db3

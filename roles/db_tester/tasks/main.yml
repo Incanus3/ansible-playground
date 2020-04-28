@@ -1,11 +1,14 @@
 ---
-- apt: name=libpq-dev
+- name: install postgres client library dev files
+  apt: name=libpq-dev
   become: true
 
-- copy: src=db-tester dest=~/deploy/ mode=0750
-- command:
+- name: copy db-tester sources to deploy dir
+  copy: src=db-tester dest=~/deploy/ mode=0750
+- name: install dependencies
+  command:
     cmd: bundle --path=vendor/bundle
     chdir: ~/deploy/db-tester
-- command:
-    cmd: bundle exec ./run.rb
-    chdir: ~/deploy/db-tester
+# - command:
+#     cmd: bundle exec ./run.rb
+#     chdir: ~/deploy/db-tester

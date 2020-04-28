@@ -1,5 +1,6 @@
 pacemaker_fencing_disabled: false
 pacemaker_hacluster_username: hacluster
+pacemaker_cluster_recheck_interval: 1min
 pacemaker_default_migration_threshold: 5
 pacemaker_default_resource_stickiness: 10
 
@@ -9,5 +10,4 @@ postgresql_run_dir: "/var/run/postgresql"
 postgresql_bin_dir: "/usr/lib/postgresql/{{ postgresql_version }}/bin"
 postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
 postgresql_data_dir: "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
-postgresql_stat_tmp_dir: "{{ postgresql_run_dir }}/{{ postgresql_version }}-{{ postgresql_cluster }}.pg_stat_tmp"
 postgresql_recovery_template: "{{ postgresql_conf_dir }}/recovery.conf.pcmk"

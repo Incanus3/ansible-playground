@@ -56,7 +56,11 @@
       - option: 'listen_addresses'
         value: "{{ postgresql_listen_addresses | join(',') }}"
       - option: 'logging_collector'
-        value: 'off'
+        value: 'on'
+      - option: 'log_min_messages'
+        value: 'info'
+      - option: 'log_min_error_statement'
+        value: 'notice'
       - option: 'log_timezone'
         value: 'Europe/Prague'
 
@@ -64,11 +68,11 @@
       - option: 'wal_level'
         value: 'replica'
       - option: 'archive_mode'
-        value: 'off'
-      # - option: 'archive_timeout'
-      #   value:  "{{ postgresql_wal_timeout }}"
-      # - option: 'archive_command'
-      #   value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+        value: 'on'
+      - option: 'archive_timeout'
+        value:  "{{ postgresql_wal_timeout }}"
+      - option: 'archive_command'
+        value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
 
     replication_slave_options:
       - option: 'hot_standby'

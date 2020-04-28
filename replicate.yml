@@ -119,7 +119,7 @@
         dest: "{{ postgresql_data_dir }}/recovery.conf"
         content: |
           standby_mode = 'on'
-          # restore_command = '{{ restore_command | trim }}'
+          restore_command = '{{ restore_command | trim }}'
           primary_conninfo = '{{ conninfo | trim }}'
           recovery_target_timeline = 'latest'
 
@@ -130,10 +130,11 @@
     postgresql_data_dir:     "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
     master_backups_dir:      "{{ hostvars[replication_master]['postgresql_backups_dir'] }}"
     master_base_backup_name: "{{ hostvars[replication_master]['base_backup_name'] }}"
+    restore_command:         "gunzip < {{ postgresql_backups_dir }}/%f.gz > %p"
 
-    restore_command: >
-      ssh {{ replication_master }} "test -f {{ master_backups_dir }}/%f.gz" &&
-      ssh {{ replication_master }} "cat {{ master_backups_dir }}/%f.gz" | gunzip > %p
+    # restore_command: >
+    #   ssh {{ replication_master }} "test -f {{ master_backups_dir }}/%f.gz" &&
+    #   ssh {{ replication_master }} "cat {{ master_backups_dir }}/%f.gz" | gunzip > %p
 
     conninfo: >
       host=''{{ postgresql_cluster_ip is defined and postgresql_cluster_ip | ipaddr('address') or replication_master }}''
@@ -163,7 +164,7 @@
       delegate_to: "{{ replication_slave }}"
       retries: 5
       delay: 1
-      until: slave_info.query_result[0].status == 'streaming'
+      until: "slave_info.get('query_result', [{'status': 'failed'}])[0].status == 'streaming'"
 
     - block:
         - name: stop postgres on slave

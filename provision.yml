@@ -41,7 +41,7 @@
       vars:
         gluster_brick_name: backups
         gluster_brick_dir: /srv/gluster/brick
-        gluster_mount_dir: "{{ postgresql_backups_dir }}"
+        gluster_mount_dir: /mnt/backups
         hosts_in_cluster: "{{ groups.db }}"
 
 
@@ -130,7 +130,7 @@
       tags: ruby-setup
       become: true
       vars:
-        ruby_version: 2.7.1
+        ruby_version: 2.7.0
         ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
         ruby_install_from_source: true
 

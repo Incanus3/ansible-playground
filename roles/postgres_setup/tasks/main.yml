@@ -67,6 +67,8 @@
     replication_master_options:
       - option: 'wal_level'
         value: 'replica'
+      - option: 'wal_keep_segments'
+        value: "{{ postgresql_wal_keep_segments }}"
       - option: 'archive_mode'
         value: 'on'
       - option: 'archive_timeout'

@@ -96,6 +96,7 @@
       file:
         state: directory
         path: "{{ deploy_dir }}/test-app"
+        owner: "{{ deploy_user }}"
         group: www-data
         mode: 0750
     - name: create apache test page
@@ -105,6 +106,7 @@
           <html>
             <body>My Test Site - {{ ansible_host }}</body>
           </html>
+        owner: "{{ deploy_user }}"
         group: www-data
         mode: 0640
     - name: create test page vhost config

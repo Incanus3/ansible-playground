@@ -36,6 +36,10 @@
       depth:    1
     register: git_checkout
 
+  - name: check if current link exists
+    stat: path="{{ backend_deploy_to }}/current"
+    register: current_link
+
   - block:
     - copy:
         src:  "{{ deploy_to }}/repo/"
@@ -54,7 +58,7 @@
         src:  "{{ deploy_to }}/shared/{{ item }}"
         dest: "{{ deploy_to }}/current/{{ item }}"
       with_items: ["config", "log"]
-    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases + 1 }}"
+    - shell: "ls -t {{ deploy_to }}/releases | tail -n +{{ keep_releases | int + 1 }}"
       register: releases_to_remove
     - file: name="{{ deploy_to }}/releases/{{ item }}" state=absent
       with_items: "{{ releases_to_remove.stdout_lines }}"
@@ -71,7 +75,7 @@
     - shell:
         cmd:   "{{ virtualenv_dir }}/bin/python manage.py create_superuser alto alto@test.cz alto || true"
         chdir: "{{ deploy_to }}/current"
-    when: git_checkout.changed | bool
+    when: git_checkout.changed | bool or not current_link.stat.exists
   become: yes
   become_user: "{{ deploy_user }}"
   environment:

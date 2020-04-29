@@ -6,7 +6,7 @@ gitlab_url:            gitlab.alto-apps.mine.nu
 ssh_key:               ansible_testing
 python_version:        3.8.1
 virtualenv:            kredit3.8
-db_host:               192.168.60.6
+db_host:               db-master
 db_port:               5432
 db_user:               alto
 db_pass:               alto

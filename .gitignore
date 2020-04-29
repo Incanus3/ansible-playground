@@ -3,3 +3,4 @@
 .vagrant
 keys/*
 !keys/.keep
+tests/vendor

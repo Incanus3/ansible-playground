@@ -24,7 +24,7 @@
     - name: install pacemaker packages
       apt: name=pacemaker,pacemaker-cli-utils,fence-agents,pcs,resource-agents-paf state=present
     - name: allow connections to necessary ports
-      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts[postgresql_iface] | iface_to_subnet_cidr }}
+      ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts[private_net_iface] | iface_to_subnet_cidr }}
       with_items:
         - { proto: 'tcp', port: 2224  }
         - { proto: 'tcp', port: 3121  }
@@ -108,9 +108,14 @@
                 - name: set default resource stickiness
                   command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}
 
+                - name: set helper variables for fencing
+                  set_fact:
+                    cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
+                    additional_constraints: []
+
                 - name: disable fencing
                   command: pcs property set stonith-enabled=false
-                  when: pacemaker_fencing_disabled
+                  when: not cluster_with_fencing.fencing
 
               when: not cluster_already_existed
 
@@ -144,12 +149,6 @@
             existing_cluster_constraints: "{{ pcs_constraints.stdout_lines }}"
 
         - block:
-            - name: set helper variables for fencing
-              set_fact:
-                cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
-                additional_constraints: []
-              when: inventory_hostname == hosts_in_cluster[0]
-
             - name: create shadow cluster configuration
               command: pcs cluster cib {{ cib_file_path }}
               when: inventory_hostname == hosts_in_cluster[0]
@@ -168,13 +167,13 @@
 
             - include_tasks: set_up_resource.yml
               when: resource.name not in existing_cluster_resources
-              loop: "{{ cluster.resources }}"
+              loop: "{{ cluster.resources | default([]) }}"
               loop_control:
                 loop_var: resource
 
             - include_tasks: set_up_constraint.yml
               when: inventory_hostname == hosts_in_cluster[0]
-              loop: "{{ cluster.constraints + additional_constraints }}"
+              loop: "{{ cluster.constraints | default([]) + additional_constraints }}"
               loop_control:
                 loop_var: constraint
 

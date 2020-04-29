@@ -1,0 +1,20 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    awesome_print (1.8.0)
+    faraday (1.0.1)
+      multipart-post (>= 1.2, < 3)
+    faraday_middleware (1.0.0)
+      faraday (~> 1.0)
+    multipart-post (2.1.1)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  awesome_print
+  faraday
+  faraday_middleware
+
+BUNDLED WITH
+   1.17.2

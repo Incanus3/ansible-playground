@@ -27,7 +27,7 @@
         "{{ groups.all | map('extract', hostvars, ['network_group']) | list | unique }}"
 
 
-- hosts: app,db
+- hosts: app
   roles:
     - { role: pacemaker, tags: pacemaker }
 
@@ -38,8 +38,15 @@
         network_group: all
         resources:
           - { type: 'IP',    name: 'appIP', address: '192.168.60.10/24' }
-          - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
+          # - { type: 'nginx', name: 'nginx', colocation: ['appIP'], start_after: ['appIP'] }
 
+
+- hosts: db
+  roles:
+    - { role: pacemaker, tags: pacemaker }
+
+  vars:
+    pacemaker_clusters:
       - name: dbs
         role_group: db
         network_group: all

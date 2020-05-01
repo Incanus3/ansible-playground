@@ -7,6 +7,6 @@ postgresql_replication_user: replicator
 postgresql_additional_listen_addresses: []
 
 postgresql_allowed_clients:
-  "{{ groups.web + groups.apps | intersect(hosts_in_my_group) }}"
+  "{{ groups.app | intersect(hosts_in_my_group) }}"
 postgresql_replication_clients:
   "{{ groups.db | intersect(hosts_in_my_group) }}"

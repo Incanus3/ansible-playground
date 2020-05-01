@@ -1,6 +1,8 @@
 private_net_iface: eth1
+
 hypervizor_host: '192.168.60.1'
 hypervizor_user: 'jakub'
 hypervizor_fence_agent: 'fence_virsh'
 hypervizor_port_prefix: 'playground_'
+
 pacemaker_hacluster_password: hacluster

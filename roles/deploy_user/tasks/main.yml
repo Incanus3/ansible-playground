@@ -19,7 +19,6 @@
           IdentityFile {{ ssh_dir }}/{{ ssh_key }}
   - known_hosts:
       host: "{{ gitlab_url }}"
-      # key:  "|1|mFo7fs8KMgu0G53K9sagnGkgu7s=|GMg2NKCg8tyg/DVBFmkrMQDjTh4= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpqCp4+FXQOvXeoxclHD3ejSY6Wr4knvDmFWCnOq5e1"
       key: 'gitlab.alto-apps.mine.nu ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCxqxh5p4oirX3YwUv0h0GJv5y72prurfI3mdODBao+'
   become: yes
   become_user: "{{ username }}"

@@ -7,6 +7,7 @@
 - name: set port prefix
   set_fact:
     port_prefix: "{{ fence.port_prefix | default(defaults.port_prefix) | default(hypervizor_port_prefix) }}"
+    password:    "{{ fence.password    | default(defaults.password)    | default(hypervizor_password) | default(None) }}"
 
 - name: define fence device {{ fence_name }}
   command: >-
@@ -17,9 +18,14 @@
     port="{{           fence.port            | default(port_prefix ~ fence.host) }}"
     ipaddr="{{         fence.hypervizor_host | default(defaults.hypervizor_host) | default(hypervizor_host)     }}"
     login="{{          fence.hypervizor_user | default(defaults.hypervizor_user) | default(hypervizor_user)     }}"
+    {% if password %}
+    passwd="{{ password }}"
+    {% else %}
     identity_file="{{  fence.identity_file   | default(defaults.identity_file)   | default('$HOME/.ssh/id_rsa') }}"
+    {% endif %}
     power_wait="{{     fence.power_wait      | default(defaults.power_wait)      | default(10)                  }}"
   when: fence_name not in existing_cluster_fences
+  vars:
 
 - name: add fence device location constraint
   set_fact:

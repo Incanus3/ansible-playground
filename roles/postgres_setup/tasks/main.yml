@@ -2,20 +2,36 @@
 - become: yes
 
   block:
-  - name: set postgresql options
-    set_fact:
-      postgresql_global_config_options:
-        "{{ postgresql_global_config_options + common_options + replication_master_options + replication_slave_options }}"
-      postgresql_hba_entries:
-        "{{ postgresql_hba_entries + replication_hba_entries }}"
-      postgresql_users:
-        - name: "{{ postgresql_replication_user }}"
-          password: "{{ postgresql_replication_password }}"
-          role_attr_flags: REPLICATION
-  - import_role: name=geerlingguy.postgresql
-  - name: allow connection from clients
-    ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
-    with_items: "{{ allowed_clients_ipv4 + replication_clients_ipv4 }}"
+    - name: add postgresql_cluster_ip to postgresql_additional_listen_addresses if defined
+      set_fact:
+        postgresql_additional_listen_addresses:
+          "{{ postgresql_additional_listen_addresses | default([]) + [postgresql_cluster_ip | ipaddr('address')] }}"
+      when: postgresql_cluster_ip is defined
+
+    - name: set postgresql options
+      set_fact:
+        postgresql_global_config_options:
+          "{{ postgresql_global_config_options + common_options + replication_master_options + replication_slave_options }}"
+        postgresql_hba_entries:
+          "{{ postgresql_hba_entries + replication_hba_entries }}"
+        postgresql_users:
+          - name:     "{{ postgresql_replication_user }}"
+            password: "{{ postgresql_replication_password }}"
+            role_attr_flags: REPLICATION
+
+    - import_role: name=geerlingguy.postgresql
+
+    - name: create backup directory
+      file:
+        state: directory
+        path:  "{{ postgresql_backups_dir }}"
+        owner: "{{ postgresql_user  }}"
+        group: "{{ postgresql_group }}"
+        mode:  0770
+
+    - name: allow connection from clients
+      ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
+      with_items: "{{ allowed_clients_ipv4 + replication_clients_ipv4 }}"
 
   vars:
     postgresql_iface_address:
@@ -50,34 +66,32 @@
     replication_hba_entries:
       "{{ accept_replication_hba_entries + [reject_self_replication_hba_entry] }}"
 
-    postgresql_python_library: python3-psycopg2
-
     common_options:
       - option: 'listen_addresses'
-        value: "{{ postgresql_listen_addresses | join(',') }}"
+        value:  "{{ postgresql_listen_addresses | join(',') }}"
       - option: 'logging_collector'
-        value: 'on'
+        value:  'on'
       - option: 'log_min_messages'
-        value: 'info'
+        value:  'info'
       - option: 'log_min_error_statement'
-        value: 'notice'
+        value:  'notice'
       - option: 'log_timezone'
-        value: 'Europe/Prague'
+        value:  'Europe/Prague'
 
     replication_master_options:
       - option: 'wal_level'
-        value: 'replica'
+        value:  'replica'
       - option: 'wal_keep_segments'
-        value: "{{ postgresql_wal_keep_segments }}"
+        value:  "{{ postgresql_wal_keep_segments }}"
       - option: 'archive_mode'
-        value: 'on'
+        value:  'on'
       - option: 'archive_timeout'
         value:  "{{ postgresql_wal_timeout }}"
       - option: 'archive_command'
-        value: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+        value:  "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
 
     replication_slave_options:
       - option: 'hot_standby'
-        value: 'on'
+        value:  'on'
       - option: 'hot_standby_feedback'
-        value: 'on'
+        value:  'on'

@@ -21,8 +21,16 @@
     - name: install python expect library
       apt: name=python3-pexpect state=present
 
-    - name: install pacemaker packages
-      apt: name=pacemaker,pacemaker-cli-utils,fence-agents,pcs,resource-agents-paf state=present
+    - block:
+        - name: install pacemaker packages
+          apt: name="{{ packages }}" state=present
+        - name: prevent pacemaker packages from upgrading
+          command: apt-mark hold {{ packages | join(' ') }}
+          register: result
+          changed_when: result.stdout_lines | reject('search', 'already set') | list
+      vars:
+        packages: [pacemaker, pacemaker-cli-utils, fence-agents, pcs, resource-agents-paf]
+
     - name: allow connections to necessary ports
       ufw: rule=allow proto={{ item.proto }} port={{ item.port }} src={{ ansible_facts[private_net_iface] | iface_to_subnet_cidr }}
       with_items:
@@ -30,6 +38,7 @@
         - { proto: 'tcp', port: 3121  }
         - { proto: 'tcp', port: 21064 }
         - { proto: 'udp', port: 5405  }
+
     - name: enable pacemaker services
       service: name={{ item }} enabled=yes
       with_items: [corosync, pacemaker, pcsd]
@@ -66,6 +75,11 @@
         - name: destroy initial cluster
           command: pcs cluster destroy
           when: "'Cluster name: debian' in pcs_status_initial.stdout_lines"
+
+        - name: set helper variables for fencing
+          set_fact:
+            cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
+            additional_constraints: []
 
         - block:
             - name: check for existing cluster
@@ -107,11 +121,6 @@
 
                 - name: set default resource stickiness
                   command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}
-
-                - name: set helper variables for fencing
-                  set_fact:
-                    cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
-                    additional_constraints: []
 
                 - name: disable fencing
                   command: pcs property set stonith-enabled=false

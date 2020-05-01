@@ -1,3 +1,5 @@
+hypervizor_port_prefix: ''
+
 pacemaker_hacluster_username: hacluster
 pacemaker_cluster_recheck_interval: 1min
 pacemaker_default_migration_threshold: 5

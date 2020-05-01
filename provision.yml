@@ -17,14 +17,14 @@
 
   - name: set network group variables
     set_fact:
+      network_group_names:
+        "{{ groups.all | map('extract', hostvars, ['network_group']) | list | unique }}"
       my_network_group:
         "{{ hostvars[inventory_hostname]['network_group'] }}"
       hosts_in_my_group:
         "{{ hostvars | dict2items
           | selectattr('value.network_group', 'eq', hostvars[inventory_hostname]['network_group'])
           | map(attribute = 'key') | list }}"
-      network_group_names:
-        "{{ groups.all | map('extract', hostvars, ['network_group']) | list | unique }}"
 
 
 - hosts: all
@@ -49,27 +49,8 @@
   roles:
     - role: postgres_setup
       tags: postgres-setup
-      vars:
-        postgresql_allowed_clients: "{{ groups.app }}"
-
-  pre_tasks:
-    - set_fact:
-        postgresql_additional_listen_addresses:
-          "{{ postgresql_additional_listen_addresses | default([]) + [postgresql_cluster_ip | ipaddr('address')] }}"
-      when: postgresql_cluster_ip is defined
-      tags: postgres-setup
 
   post_tasks:
-    - name: create backups directory
-      file:
-        state: directory
-        path:  "{{ postgresql_backups_dir }}"
-        owner: "{{ postgresql_user  }}"
-        group: "{{ postgresql_group }}"
-        mode: 0770
-      tags: postgres-setup
-      become: true
-
     - become: yes
       become_user: postgres
       tags: create-db

@@ -4,3 +4,4 @@
 keys/*
 !keys/.keep
 tests/vendor
+.mypy_cache

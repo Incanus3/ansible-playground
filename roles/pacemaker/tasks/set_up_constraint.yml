@@ -1,3 +1,4 @@
+---
 - block:
     - name: set location constraint variables
       set_fact:
@@ -11,7 +12,7 @@
     - name: define location constraint {{ constraint_id }}
       command: >-
         pcs -f {{ cib_file_path }} constraint location add {{ constraint_id }}
-        {{ constraint.resource }} {{ constraint.host }} {{ constraint_score }}
+        {{ constraint.resource | full_name(cluster.resources) }} {{ constraint.host }} {{ constraint_score }}
       when: constraint_id not in existing_cluster_constraints
 
   when: constraint.type == 'location'
@@ -27,8 +28,8 @@
     - name: define colocation constraint {{ constraint_id }}
       command: >-
         pcs -f {{ cib_file_path }} constraint colocation
-        add {{  constraint.what_role | default('started') }} {{ constraint.what }}
-        with {{ constraint.with_role | default('started') }} {{ constraint.with }}
+        add {{  constraint.what_role | default('started') }} {{ constraint.what | full_name(cluster.resources) }}
+        with {{ constraint.with_role | default('started') }} {{ constraint.with | full_name(cluster.resources) }}
         {{ constraint.score | default('INFINITY') }}
         id={{ constraint_id }}
       when: constraint_id not in existing_cluster_constraints
@@ -46,8 +47,8 @@
     - name: define order constraint {{ constraint_id }}
       command: >-
         pcs -f {{ cib_file_path }} constraint order
-        {{ constraint.first_action }} {{ constraint.first_resource }} then
-        {{ constraint.then_action }} {{  constraint.then_resource }}
+        {{ constraint.first_action }} {{ constraint.first_resource | full_name(cluster.resources) }} then
+        {{ constraint.then_action }} {{  constraint.then_resource  | full_name(cluster.resources) }}
         id={{ constraint_id }}
         kind={{ constraint.kind | default('mandatory') | capitalize }}
         symmetrical={{ constraint.symmetrical | default(true) | string | lower }}

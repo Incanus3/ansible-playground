@@ -28,6 +28,7 @@
 
 
 - hosts: all
+  tags: base
   roles:
     - { role: basic_setup, tags: basic-setup }
     - { role: sshd,        tags: sshd        }
@@ -35,7 +36,6 @@
 
 - hosts: db
   roles:
-    # TODO: move this to a separate playbook
     - role: glusterfs
       tags: glusterfs
       vars:
@@ -66,56 +66,56 @@
   roles: [nginx_setup]
   become: true
 
-  post_tasks:
-    - name: create deploy user
-      user:
-        name:     "{{ deploy_user }}"
-        password: "{{ deploy_user_pass | password_hash('sha512') }}"
-        shell:    "{{ deploy_user_shell }}"
-        update_password: on_create
-    - name: create directory for test page
-      file:
-        state: directory
-        path: "{{ deploy_dir }}/test-app"
-        owner: "{{ deploy_user }}"
-        group: www-data
-        mode: 0750
-    - name: create apache test page
-      copy:
-        dest: "{{ deploy_dir }}/test-app/index.html"
-        content: |
-          <html>
-            <body>My Test Site - {{ ansible_host }}</body>
-          </html>
-        owner: "{{ deploy_user }}"
-        group: www-data
-        mode: 0640
-    - name: create test page vhost config
-      copy:
-        dest: /etc/nginx/sites-available/test-app
-        content: |
-          server {
-            listen 80;
-            root {{ deploy_dir }}/test-app;
-            index index.html;
-          }
-    - name: enable test page vhost
-      file:
-        state: link
-        src:  /etc/nginx/sites-available/test-app
-        dest: /etc/nginx/sites-enabled/test-app
-      notify: restart nginx
+  # post_tasks:
+  #   - name: create deploy user
+  #     user:
+  #       name:     "{{ deploy_user }}"
+  #       password: "{{ deploy_user_pass | password_hash('sha512') }}"
+  #       shell:    "{{ deploy_user_shell }}"
+  #       update_password: on_create
+  #   - name: create directory for test page
+  #     file:
+  #       state: directory
+  #       path: "{{ deploy_dir }}/test-app"
+  #       owner: "{{ deploy_user }}"
+  #       group: www-data
+  #       mode: 0750
+  #   - name: create apache test page
+  #     copy:
+  #       dest: "{{ deploy_dir }}/test-app/index.html"
+  #       content: |
+  #         <html>
+  #           <body>My Test Site - {{ ansible_host }}</body>
+  #         </html>
+  #       owner: "{{ deploy_user }}"
+  #       group: www-data
+  #       mode: 0640
+  #   - name: create test page vhost config
+  #     copy:
+  #       dest: /etc/nginx/sites-available/test-app
+  #       content: |
+  #         server {
+  #           listen 80;
+  #           root {{ deploy_dir }}/test-app;
+  #           index index.html;
+  #         }
+  #   - name: enable test page vhost
+  #     file:
+  #       state: link
+  #       src:  /etc/nginx/sites-available/test-app
+  #       dest: /etc/nginx/sites-enabled/test-app
+  #     notify: restart nginx
 
 
 - hosts: app
   roles:
-    - role: geerlingguy.ruby
-      tags: ruby-setup
-      become: true
-      vars:
-        ruby_version: 2.7.0
-        ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
-        ruby_install_from_source: true
+    # - role: geerlingguy.ruby
+    #   tags: ruby-setup
+    #   become: true
+    #   vars:
+    #     ruby_version: 2.7.0
+    #     ruby_download_url: http://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.0.tar.gz
+    #     ruby_install_from_source: true
 
     - role: db_tester
       tags: db-tester

@@ -1,5 +1,19 @@
 ---
-- hosts: "{{ replication_slave }}"
+- hosts: "{{ [postgresql_replication_master, postgresql_replication_slave] }}"
+  name: collect postgresql info
+  tags: collect-info
+  tasks:
+    - name: get postgresql version
+      command: psql --version
+      register: psql_version
+      changed_when: false
+
+    - name: set postgresql_version variable
+      set_fact:
+        postgresql_version: "{{ psql_version.stdout | split | nth(3) | split('.') | first }}"
+
+
+- hosts: "{{ postgresql_replication_slave }}"
   name: prepare ssh
   tags: prepare-ssh
   become: yes
@@ -22,20 +36,20 @@
       authorized_key:
         user: postgres
         key: "{{ slave_key.public_key }}"
-      delegate_to: "{{ replication_master }}"
+      delegate_to: "{{ postgresql_replication_master }}"
 
     - name: get master known_hosts line
-      command: ssh-keyscan -H "{{ replication_master }}"
+      command: "ssh-keyscan -H {{ postgresql_replication_master }}"
       register: master_known_hosts_line
       changed_when: false
 
     - name: add master to slave's known_hosts
       known_hosts:
-        host: "{{ replication_master }}"
+        host: "{{ postgresql_replication_master }}"
         key:  "{{ master_known_hosts_line.stdout }}"
 
 
-- hosts: "{{ replication_master }}"
+- hosts: "{{ postgresql_replication_master }}"
   name: backup master
   tags: backup-master
   become: yes
@@ -46,11 +60,14 @@
     - name: set base_backup_name variable
       set_fact:
         base_backup_name:
-          "ans-base-backup-for-{{ replication_slave }}-{{ ansible_facts.date_time.iso8601_basic_short }}"
+          "ans-base-backup-for-{{ postgresql_replication_slave }}-{{ ansible_facts.date_time.iso8601_basic_short }}"
 
     - name: create base backup
-      command: pg_basebackup -U {{ postgresql_replication_user }} -D {{ postgresql_backups_dir }}/{{ base_backup_name }} -X stream -Ft -z
-        creates="{{ postgresql_backups_dir }}/{{ base_backup_name }}"
+      command:
+        cmd: >-
+          pg_basebackup -U {{ postgresql_replication_user }} -D {{ postgresql_backups_dir }}/{{ base_backup_name }}
+          --wal-method=stream --format=tar --gzip --checkpoint=fast
+        creates: "{{ postgresql_backups_dir }}/{{ base_backup_name }}"
       environment:
         PGPASSWORD: "{{ postgresql_replication_password }}"
 
@@ -62,15 +79,15 @@
         private_key: ~/.ssh/id_ed25519
         set_remote_user: no
         rsync_path: 'rsync'
-      delegate_to: "{{ replication_slave }}"
+      delegate_to: "{{ postgresql_replication_slave }}"
 
     - block:
         - name: get existing IP addresses
-          command: ip -4 -br addr show dev "{{ postgresql_iface }}"
+          command: "ip -4 -br addr show dev {{ postgresql_iface }}"
           register: existing_ips
 
         - name: add cluster IP
-          command: ip addr add {{ postgresql_cluster_ip }} dev {{ postgresql_iface }}
+          command: "ip addr add {{ postgresql_cluster_ip }} dev {{ postgresql_iface }}"
           when: postgresql_cluster_ip not in existing_ips.stdout
           notify: restart postgres
 
@@ -87,20 +104,21 @@
       become_user: root
 
 
-- hosts: "{{ replication_slave }}"
+- hosts: "{{ postgresql_replication_slave }}"
   name: restore on slave
   tags: restore-slave
   become: yes
+  # TODO: should we do the whole play undler postgres user?
 
   tasks:
     - name: stop postgres on slave
       service: name=postgresql state=stopped
 
     - name: delete data dir on slave
-      file: path={{ postgresql_data_dir }} state=absent
+      file: path="{{ postgresql_data_dir }}" state=absent
 
     - name: create data dir on slave
-      file: path={{ postgresql_data_dir }} state=directory owner=postgres group=postgres mode=0700
+      file: path="{{ postgresql_data_dir }}" state=directory owner=postgres group=postgres mode=0700
 
     - name: unpack base backup to data dir
       unarchive:
@@ -114,68 +132,96 @@
         dest: "{{ postgresql_data_dir }}/pg_wal"
         remote_src: true
 
-    - name: create recovery.conf
+    - name: create recovery.conf file
       copy:
         dest: "{{ postgresql_data_dir }}/recovery.conf"
         content: |
           standby_mode = 'on'
-          restore_command = '{{ restore_command | trim }}'
+          restore_command = '{{ postgresql_restore_command | trim }}'
           primary_conninfo = '{{ conninfo | trim }}'
           recovery_target_timeline = 'latest'
+      when: postgresql_version | int < 12
+
+    - block:
+        - name: create postgresql.auto.conf file
+          copy:
+            dest: "{{ postgresql_data_dir }}/postgresql.auto.conf"
+            content: |
+              restore_command = '{{ postgresql_restore_command | trim }}'
+              primary_conninfo = '{{ conninfo | trim }}'
+              recovery_target_timeline = 'latest'
+            owner: "{{ postgresql_user  }}"
+            group: "{{ postgresql_group }}"
+            mode:  0644
+
+        - name: create standby.signal file
+          file:
+            state: touch
+            path:  "{{ postgresql_data_dir }}/standby.signal"
+            owner: "{{ postgresql_user  }}"
+            group: "{{ postgresql_group }}"
+            mode:  0600
+          become_user: postgres
+
+      when: postgresql_version | int >= 12
 
     - name: start postgres on slave
       service: name=postgresql state=started
 
   vars:
     postgresql_data_dir:     "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
-    master_backups_dir:      "{{ hostvars[replication_master]['postgresql_backups_dir'] }}"
-    master_base_backup_name: "{{ hostvars[replication_master]['base_backup_name'] }}"
-    restore_command:         "gunzip < {{ postgresql_backups_dir }}/%f.gz > %p"
+    master_backups_dir:      "{{ hostvars[postgresql_replication_master]['postgresql_backups_dir'] }}"
+    master_base_backup_name: "{{ hostvars[postgresql_replication_master]['base_backup_name'] }}"
 
-    # restore_command: >
-    #   ssh {{ replication_master }} "test -f {{ master_backups_dir }}/%f.gz" &&
-    #   ssh {{ replication_master }} "cat {{ master_backups_dir }}/%f.gz" | gunzip > %p
+    conninfo: >-
+      {% if postgresql_cluster_ip is defined %}{# cluster setup #}
+      host=''{{     postgresql_cluster_ip | ipaddr('address') }}''
+      port={{       postgresql_port                           }}
+      user={{       postgresql_replication_user               }}
+      password=''{{ postgresql_replication_password           }}''
+      application_name={{ postgresql_replication_slave }}
 
-    conninfo: >
-      host=''{{ postgresql_cluster_ip is defined and postgresql_cluster_ip | ipaddr('address') or replication_master }}''
-      port={{ hostvars[replication_master]['postgresql_port'] }}
-      user={{ hostvars[replication_master]['postgresql_replication_user'] }}
-      password=''{{ hostvars[replication_master]['postgresql_replication_password'] }}''
-      application_name={{ replication_slave }}
+      {% elif postgresql_replication_master is defined %}{# statuc setup #}
+      host=''{{              postgresql_replication_master                                     }}''
+      port={{       hostvars[postgresql_replication_master]['postgresql_port']                 }}
+      user={{       hostvars[postgresql_replication_master]['postgresql_replication_user']     }}
+      password=''{{ hostvars[postgresql_replication_master]['postgresql_replication_password'] }}''
+      application_name={{ postgresql_replication_slave }}
+      {% endif %}
 
-
-- hosts: "{{ replication_master }}"
+- hosts: "{{ postgresql_replication_master }}"
   name: clean up
   tags: clean-up
   become: yes
   tasks:
-    - name: get master replication status
-      postgresql_info:
-        filter: replications
-      register: master_info
-      become_user: postgres
-
-    - name: get slave replication status
-      postgresql_query:
-        db: postgres
-        query: select * from pg_stat_wal_receiver
-      register: slave_info
-      become_user: postgres
-      delegate_to: "{{ replication_slave }}"
-      retries: 5
-      delay: 1
-      until: "slave_info.get('query_result', [{'status': 'failed'}])[0].status == 'streaming'"
-
     - block:
+        - name: get master replication status
+          postgresql_info:
+            filter: replications
+          register: master_info
+          become_user: postgres
+
+        - name: get slave replication status
+          postgresql_query:
+            db: postgres
+            query: select * from pg_stat_wal_receiver
+          register: slave_info
+          become_user: postgres
+          delegate_to: "{{ postgresql_replication_slave }}"
+          retries: 5
+          delay: 1
+          until: "slave_info.get('query_result', [{'status': 'failed'}])[0].status == 'streaming'"
+
+      always:
         - name: stop postgres on slave
           service: name=postgresql state=stopped
-          delegate_to: "{{ replication_slave }}"
+          delegate_to: "{{ postgresql_replication_slave }}"
+          when: postgresql_cluster_ip is defined and postgresql_cluster_ip not in existing_ips.stdout
 
         - name: remove cluster IP from master
-          command: ip addr del {{ postgresql_cluster_ip }} dev {{ postgresql_iface }}
+          command: "ip addr del {{ postgresql_cluster_ip }} dev {{ postgresql_iface }}"
           notify: restart postgres
-
-      when: postgresql_cluster_ip is defined and postgresql_cluster_ip not in existing_ips.stdout
+          when: postgresql_cluster_ip is defined and postgresql_cluster_ip not in existing_ips.stdout
 
     - debug: var=master_info.replications
     - debug: var=slave_info.query_result[0]

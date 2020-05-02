@@ -2,6 +2,7 @@
 # NOTA BENE: all pcs commands need to be run on only one host, use
 # `when: inventory_hostname == hosts_in_cluster[0]` to achieve that
 
+# TODO: check whether we can add mask suffix after upgrade
 - name: define IP resource {{ resource.name }}
   command: >-
     pcs -f {{ cib_file_path }} resource create {{ resource.name }} ocf:heartbeat:IPaddr2
@@ -23,6 +24,15 @@
   when: resource.type | lower == 'nginx'
 
 - block:
+    - name: get postgresql version
+      command: psql --version
+      register: psql_version
+      changed_when: false
+
+    - name: set postgresql_version variable
+      set_fact:
+        postgresql_version: "{{ psql_version.stdout | split | nth(3) | split('.') | first }}"
+
     - name: ensure pg_stat_tmp run directory
       lineinfile:
         path: /etc/tmpfiles.d/postgresql.conf
@@ -34,24 +44,36 @@
       vars:
         postgresql_stat_tmp_dir: "{{ postgresql_run_dir }}/{{ postgresql_version }}-{{ postgresql_cluster }}.pg_stat_tmp"
 
-    - name: create recovery.conf template
-      copy:
-        dest: "{{ postgresql_recovery_template }}"
-        content: |
-          standby_mode = on
-          restore_command = '{{ restore_command | trim }}'
-          primary_conninfo = '{{ conninfo | trim }}'
-          recovery_target_timeline = 'latest'
-        owner: postgres
-        group: postgres
-        mode: 0640
+    - block:
+        - name: create recovery.conf template
+          copy:
+            dest: "{{ postgresql_recovery_template }}"
+            content: |
+              standby_mode = on
+              restore_command = '{{ postgresql_restore_command | trim }}'
+              primary_conninfo = '{{ conninfo | trim }}'
+              recovery_target_timeline = 'latest'
+            owner: postgres
+            group: postgres
+            mode: 0640
+          when: postgresql_version | int < 12
+
+        - name: create postgresql.auto.conf file
+          copy:
+            dest: "{{ postgresql_data_dir }}/postgresql.auto.conf"
+            content: |
+              restore_command = '{{ postgresql_restore_command | trim }}'
+              primary_conninfo = '{{ conninfo | trim }}'
+              recovery_target_timeline = 'latest'
+          when: postgresql_version | int >= 12
+
       vars:
         conninfo: >
-          host=''{{ resource.haIP }}''
-          user={{ postgresql_replication_user }}
-          password=''{{ postgresql_replication_password }}''
-          application_name={{ inventory_hostname }}
-        restore_command: "gunzip < {{ postgresql_backups_dir }}/%f.gz > %p"
+          host=''{{           resource.haIP                   }}''
+          port={{             postgresql_port                 }}
+          user={{             postgresql_replication_user     }}
+          password=''{{       postgresql_replication_password }}''
+          application_name={{ inventory_hostname              }}
 
     - name: disable and stop postgres - will be managed by pcm
       service: name=postgresql state=stopped enabled=false
@@ -68,14 +90,16 @@
         value: '1'
         sysctl_file: /etc/sysctl.d/99-custom.conf
 
-    - name: define postgres-ha node resource {{ resource.name ~ '-node' }}
+    - name: define postgres-ha resource {{ resource.name }}
       command: >-
-        pcs -f {{ cib_file_path }} resource create {{ resource.name ~ '-node' }} ocf:heartbeat:pgsqlms
+        pcs -f {{ cib_file_path }} resource create {{ resource.name }} ocf:heartbeat:pgsqlms
         pghost="{{ postgresql_run_dir }}"
         bindir="{{ postgresql_bin_dir }}"
         pgdata="{{ postgresql_conf_dir }}"
         datadir="{{ postgresql_data_dir }}"
+        {% if postgresql_version | int < 12 %}
         recovery_template="{{ postgresql_recovery_template }}"
+        {% endif %}
         op start timeout=60s
         op stop timeout=60s
         op promote timeout=30s
@@ -85,9 +109,16 @@
         op notify timeout=60s
       when: inventory_hostname == hosts_in_cluster[0]
 
-    - name: define postgres-ha master resource {{ resource.name }}
-      command: >-
-        pcs -f {{ cib_file_path }} resource master {{ resource.name }} {{ resource.name ~ '-node' }} master-max=1 notify=true
-      when: inventory_hostname == hosts_in_cluster[0]
-
   when: resource.type | lower == 'postgres-ha'
+
+- name: define clone resource for {{ resource.name }}
+  command: >-
+    pcs -f {{ cib_file_path }} resource
+    {% if before_0_10 %}
+    master {{ resource.name ~ '-clone' }} {{ resource.name }}
+    {% else %}
+    promotable {{ resource.name }}
+    {% endif %}
+    {% if before_0_10 %}master{% else %}promoted{% endif %}-max=1
+    notify=true
+  when: inventory_hostname == hosts_in_cluster[0] and resource.promotable | default(False)

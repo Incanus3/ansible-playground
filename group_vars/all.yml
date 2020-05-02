@@ -6,3 +6,10 @@ hypervizor_fence_agent: 'fence_virsh'
 hypervizor_port_prefix: 'playground_'
 
 pacemaker_hacluster_password: hacluster
+
+postgresql_archive_command: "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+postgresql_restore_command: "gunzip < {{  postgresql_backups_dir }}/%f.gz > %p"
+
+# postgresql_restore_command: >
+#   ssh {{ postgresql_replication_master }} "test -f {{ master_backups_dir }}/%f.gz" &&
+#   ssh {{ postgresql_replication_master }} "cat {{ master_backups_dir }}/%f.gz" | gunzip > %p

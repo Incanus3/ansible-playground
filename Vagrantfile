@@ -21,7 +21,8 @@ Vagrant.configure(VAGRANT_API_VERSION) do |config|
 
   config.ssh.insert_key = false
 
-  config.vm.box = 'generic/ubuntu1804'
+  # config.vm.box = 'generic/ubuntu1804'
+  config.vm.box = 'abi/ubuntu2004'
   config.vm.synced_folder '.', '/vagrant', disabled: true
 
   # config.vm.provider 'virtualbox' do |vb|

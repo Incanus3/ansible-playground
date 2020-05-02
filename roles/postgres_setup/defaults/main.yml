@@ -1,6 +1,4 @@
 postgresql_port: 5432
-postgresql_version: 10
-postgresql_cluster: main
 postgresql_wal_timeout: 300
 postgresql_wal_keep_segments: 10
 postgresql_replication_user: replicator

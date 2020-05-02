@@ -65,6 +65,16 @@
       changed_when: false
 
     - block:
+        - name: get pcs version
+          command: pcs --version
+          register: pcs_version
+          changed_when: false
+
+        - name: set pcs version variables
+          set_fact:
+            before_0_10:   "{{ pcs_version.stdout is version('0.10', '<')  }}"
+            at_least_0_10: "{{ pcs_version.stdout is version('0.10', '>=') }}"
+
         - name: check for initial (after-install) cluster
           command: pcs status
           register: pcs_status_initial
@@ -81,71 +91,84 @@
             cluster_with_fencing: "{{ cluster | add_default_fencing(hosts_in_cluster) }}"
             additional_constraints: []
 
+        - name: check for existing cluster
+          command: pcs status
+          register: pcs_status
+          check_mode: no
+          failed_when: false
+          changed_when: false
+
+        - name: set cluster_already_existed variable
+          set_fact:
+            cluster_already_existed: "{{ 'Cluster name: ' + cluster.name in pcs_status.stdout_lines }}"
+
+        - name: authenticate this node with the others
+          command: >-
+            pcs host auth {{ hosts_in_cluster | join(' ') }}
+            -u "{{ pacemaker_hacluster_username }}"
+            -p "{{ pacemaker_hacluster_password }}"
+          register: result
+          changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
+          when: at_least_0_10 and not cluster_already_existed
+
         - block:
-            - name: check for existing cluster
-              command: pcs status
-              register: pcs_status
-              check_mode: no
-              failed_when: false
-              changed_when: false
+            - name: authenticate all nodes in cluster with each other
+              command: >-
+                pcs cluster auth {{ hosts_in_cluster | join(' ') }}
+                -u "{{ pacemaker_hacluster_username }}"
+                -p "{{ pacemaker_hacluster_password }}"
+              register: result
+              changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
+              when: before_0_10
 
-            - name: set cluster_already_existed variable
-              set_fact:
-                cluster_already_existed: "{{ 'Cluster name: ' + cluster.name in pcs_status.stdout_lines }}"
+            # TODO: support alternative host addresses to fall back on other network
+            - name: initialize cluster
+              command: >-
+                pcs cluster setup
+                {% if before_0_10 %}--name{% endif %} {{ cluster.name }}
+                {{ hosts_in_cluster | join(' ') }}
+                --enable
 
-            - block:
-                - name: authenticate all nodes in cluster with each other
-                  command: >-
-                    pcs cluster auth {{ hosts_in_cluster | join(' ') }}
-                    -u "{{ pacemaker_hacluster_username }}"
-                    -p "{{ pacemaker_hacluster_password }}"
-                  register: result
-                  changed_when: result.stdout_lines | reject('search', 'Already authorized') | list
+            - name: start cluster
+              command: pcs cluster start --all
 
-                # TODO: support alternative host addresses to fall back on other network
-                - name: initialize cluster
-                  command: pcs cluster setup --name "{{ cluster.name }}" {{ hosts_in_cluster | join(' ') }}
+            - name: set cluster recheck interval (default is too long)
+              command: pcs property set cluster-recheck-interval={{ pacemaker_cluster_recheck_interval }}
+              retries: 3
+              delay: 1
+              register: result
+              until: ansible_check_mode or result.rc == 0
 
-                - name: start cluster
-                  command: pcs cluster start --all
+            - name: set default resource migration threshold
+              command: pcs resource defaults migration-threshold={{ pacemaker_default_migration_threshold }}
 
-                - name: set cluster recheck interval (default is too long)
-                  command: pcs property set cluster-recheck-interval={{ pacemaker_cluster_recheck_interval }}
-                  retries: 3
-                  delay: 1
-                  register: result
-                  until: ansible_check_mode or result.rc == 0
+            - name: set default resource stickiness
+              command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}
 
-                - name: set default resource migration threshold
-                  command: pcs resource defaults migration-threshold={{ pacemaker_default_migration_threshold }}
+            - name: disable fencing
+              command: pcs property set stonith-enabled=false
+              when: not cluster_with_fencing.fencing
 
-                - name: set default resource stickiness
-                  command: pcs resource defaults resource-stickiness={{ pacemaker_default_resource_stickiness }}
-
-                - name: disable fencing
-                  command: pcs property set stonith-enabled=false
-                  when: not cluster_with_fencing.fencing
-
-              when: not cluster_already_existed
-
-          when: inventory_hostname == hosts_in_cluster[0]
+          when: not cluster_already_existed and inventory_hostname == hosts_in_cluster[0]
 
         - name: get existing fences
-          shell: pcs stonith show
+          shell: pcs stonith {% if before_0_10 %}show{% else %}status{% endif %}
           register: pcs_fences
           check_mode: no
           failed_when: false
           changed_when: false
 
         - name: get existing resources
-          shell: pcs resource show --full | grep -P '^ (Master|Resource):'
+          shell: >-
+            pcs resource {% if before_0_10 %}show --full{% else %}config{% endif %}
+            | grep -P '^ (Master|Resource|Clone):'
           register: pcs_resources
           check_mode: no
           failed_when: false
           changed_when: false
 
         - name: get existing constraints
-          shell: pcs constraint --full | grep -Po '(?<=\(id:).*(?=\))'
+          shell: pcs constraint show --full | grep -Po '(?<=\(id:).*(?=\))'
           register: pcs_constraints
           check_mode: no
           failed_when: false
@@ -213,10 +236,5 @@
             cib_start_path: /tmp/ansible-start.xml
 
       when: which_pcs.rc == 0
-
-    # for some reason, corosync and pacemaker services get disabled during cluster setup
-    - name: enable pacemaker services
-      service: name={{ item }} enabled=yes state=started
-      with_items: [corosync, pacemaker, pcsd]
 
   when: hosts_in_cluster | length > 1 and inventory_hostname in hosts_in_cluster

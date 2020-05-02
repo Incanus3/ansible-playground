@@ -1,23 +1,46 @@
 ---
+# this role support three setups
+# - cluster with automatic failover (e.g. using PAF)
+#   - postgresql_cluster_ip is defined
+#   - postgresql_replication_user, _password and _port are the same for the whole cluster
+# - static setup (one dedicated master)
+#   - postgresql_replication_master is defined
+#   - postgresql_replication_user, _password and _port are taken from master's hostvars
+# - no replication
+#   - neither postgresql_cluster_ip, nor postgresql_replication_master is defined
+
 - become: yes
 
   block:
-    - name: add postgresql_cluster_ip to postgresql_additional_listen_addresses if defined
-      set_fact:
-        postgresql_additional_listen_addresses:
-          "{{ postgresql_additional_listen_addresses | default([]) + [postgresql_cluster_ip | ipaddr('address')] }}"
-      when: postgresql_cluster_ip is defined
-
-    - name: set postgresql options
+    - name: add common options to postgresql configuration
       set_fact:
         postgresql_global_config_options:
-          "{{ postgresql_global_config_options + common_options + replication_master_options + replication_slave_options }}"
+          "{{ postgresql_global_config_options + common_options }}"
+
+    - name: add replication master options to postgresql configuration
+      set_fact:
+        postgresql_global_config_options:
+          "{{ postgresql_global_config_options + replication_master_options }}"
+      when: postgresql_cluster_ip is defined or
+           (postgresql_replication_master is defined and inventory_hostname == postgresql_replication_master)
+
+    - name: add replication slave options to postgresql configuration
+      set_fact:
+        postgresql_global_config_options:
+          "{{ postgresql_global_config_options + replication_slave_options }}"
+      when: postgresql_cluster_ip is defined or
+           (postgresql_replication_master is defined and inventory_hostname != postgresql_replication_master)
+
+    - name: allow replication connections
+      set_fact:
         postgresql_hba_entries:
           "{{ postgresql_hba_entries + replication_hba_entries }}"
         postgresql_users:
           - name:     "{{ postgresql_replication_user }}"
             password: "{{ postgresql_replication_password }}"
             role_attr_flags: REPLICATION
+      when: postgresql_cluster_ip is defined or
+           (postgresql_replication_master is defined and inventory_hostname == postgresql_replication_master)
 
     - import_role: name=geerlingguy.postgresql
 
@@ -29,15 +52,17 @@
         group: "{{ postgresql_group }}"
         mode:  0770
 
-    - name: allow connection from clients
+    - name: add firewall rules
       ufw: rule=allow proto=tcp src={{ item.address }} port={{ postgresql_port | string }}
       with_items: "{{ allowed_clients_ipv4 + replication_clients_ipv4 }}"
 
   vars:
     postgresql_iface_address:
-      "{{ hostvars[inventory_hostname]['ansible_facts'][postgresql_iface]['ipv4']['address'] }}"
+      "{{ postgresql_iface and hostvars[inventory_hostname]['ansible_facts'][postgresql_iface]['ipv4']['address'] }}"
     postgresql_listen_addresses:
-      "{{ (['127.0.0.1', postgresql_iface_address] + postgresql_additional_listen_addresses) | unique }}"
+      "{{ (['127.0.0.1', postgresql_iface_address,
+            postgresql_cluster_ip is defined and postgresql_cluster_ip | ipaddr('address')]
+        + postgresql_additional_listen_addresses) | compact | unique }}"
 
     allowed_clients_ipv4:
       "{{ postgresql_allowed_clients
@@ -81,6 +106,8 @@
     replication_master_options:
       - option: 'wal_level'
         value:  'replica'
+      - option: 'wal_log_hints'
+        value:  'on'
       - option: 'wal_keep_segments'
         value:  "{{ postgresql_wal_keep_segments }}"
       - option: 'archive_mode'
@@ -88,7 +115,7 @@
       - option: 'archive_timeout'
         value:  "{{ postgresql_wal_timeout }}"
       - option: 'archive_command'
-        value:  "test ! -f {{ postgresql_backups_dir }}/%f.gz && gzip < %p > {{ postgresql_backups_dir }}/%f.gz"
+        value:  "{{ postgresql_archive_command }}"
 
     replication_slave_options:
       - option: 'hot_standby'

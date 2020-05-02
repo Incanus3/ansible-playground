@@ -30,6 +30,7 @@
 - hosts: app
   roles:
     - { role: pacemaker, tags: pacemaker }
+  any_errors_fatal: true
 
   vars:
     pacemaker_clusters:
@@ -44,6 +45,7 @@
 - hosts: db
   roles:
     - { role: pacemaker, tags: pacemaker }
+  any_errors_fatal: true
 
   vars:
     pacemaker_clusters:
@@ -57,6 +59,7 @@
             address: "{{ postgresql_cluster_ip }}"
           - type: 'postgres-ha'
             name: 'postgres-ha'
+            promotable: true
             haIP: "{{ postgresql_cluster_ip | ipaddr('address') }}"
         constraints:
           - type: 'colocation'

@@ -10,6 +10,10 @@ class FilterModule:
     return string.split(*args, **kwargs)
 
   @staticmethod
+  def compact(lst):
+    return list(filter(lambda x: x, lst))
+
+  @staticmethod
   def range_filter(size, start = 0, step = 1):
     return list(range(start, start + size, step))
 
@@ -34,6 +38,7 @@ class FilterModule:
       'nth':                  self.nth,
       'split':                self.split,
       'range':                self.range_filter,
+      'compact':              self.compact,
       'bool_to_str':          self.bool_to_str,
       'to_dict_with':         self.to_dict_with,
       'prepend_if_not_empty': self.prepend_if_not_empty,

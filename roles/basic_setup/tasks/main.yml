@@ -3,7 +3,7 @@
   - name: update apt cache
     apt: update_cache=yes cache_valid_time=3600
   - name: install base packages
-    apt: name=ack,tree,htop,net-tools,psmisc state=present
+    apt: name=ack,tree,htop,net-tools,psmisc,vim-nox state=present
 
   - name: uninstall other ntp implementations
     apt:     name=ntp,openntpd state=absent
